@@ -1,2 +1,2 @@
 # KLULES
-KLULES：Portage Kokkos 5.0 de la proxy-app LULESH
+KULESH：Portage Kokkos 5.0 de la proxy-app LULESH
