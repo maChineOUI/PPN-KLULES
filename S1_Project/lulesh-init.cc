@@ -1,868 +1,687 @@
-#include <math.h>
+#include <cmath>          // math operations (preferred)
+#include <cstdio>         // printf
+#include <cstdlib>        // rand, exit
+#include <cstring>        // memset, memcpy
+#include <limits.h>       // INT_MIN / INT_MAX
+#include <algorithm>      // std::min/max
+#include <Kokkos_Random.hpp>
+
+#include <Kokkos_Core.hpp>    // Kokkos 核心头文件 
+
 #if USE_MPI
-# include <mpi.h>
+#include <mpi.h>
 #endif
+
 #if _OPENMP
 #include <omp.h>
 #endif
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <limits.h>
-#include <cstdlib>
+
 #include "lulesh.h"
 
+/* 
+ * Constructeur du domaine — version Kokkos 5.0
+ * Domain 构造函数 —— Kokkos 5.0 版本
+ */
 Domain::Domain(Int_t numRanks, Index_t colLoc,
                Index_t rowLoc, Index_t planeLoc,
-               Index_t nx, int tp, int nr, int balance, Int_t cost)
-    :
-      m_e_cut(Real_t(1.0e-7)),   // 截断能量阈值
-                                 // seuil de coupure pour l'énergie
-      m_p_cut(Real_t(1.0e-7)),   // 截断压力阈值
-                                 // seuil de coupure pour la pression
-      m_q_cut(Real_t(1.0e-7)),   // 截断人工黏性阈值
-                                 // seuil pour la viscosité artificielle
-      m_v_cut(Real_t(1.0e-10)),  // 体积截断阈值
-                                 // seuil de coupure du volume
-      m_u_cut(Real_t(1.0e-7)),   // 速度截断阈值
-                                 // seuil de coupure de la vitesse
-      m_hgcoef(Real_t(3.0)),     // hourglass 系数
-                                 // coefficient anti-hourglass
-      m_ss4o3(Real_t(4.0)/Real_t(3.0)), // 声速比例系数
-                                       // coefficient acoustique (4/3)
-      m_qstop(Real_t(1.0e+12)),  // Q 上限
-                                 // limite supérieure du Q
-      m_monoq_max_slope(Real_t(1.0)),    // 单调 Q 最大斜率
-                                         // pente max pour Monotonic Q
-      m_monoq_limiter_mult(Real_t(2.0)), // limiter 系数
-                                         // multiplicateur pour le limiteur
-      m_qlc_monoq(Real_t(0.5)),          // 线性黏性参数
-                                         // viscosité linéaire
-      m_qqc_monoq(Real_t(2.0)/Real_t(3.0)), // 二次黏性参数
-                                            // viscosité quadratique
-      m_qqc(Real_t(2.0)),      // Q 计算常数
-                               // constante pour le calcul de Q
-      m_eosvmax(Real_t(1.0e+9)), // EOS 最大体积
-                                 // volume maximal pour l’EOS
-      m_eosvmin(Real_t(1.0e-9)), // EOS 最小体积
-                                 // volume minimal pour l’EOS
-      m_pmin(Real_t(0.0)),       // 压力下限
-                                 // pression minimale
-      m_emin(Real_t(-1.0e+15)),  // 能量下限
-                                 // énergie minimale
-      m_dvovmax(Real_t(0.1)),    // 最大体积变化率
-                                 // taux max de changement de volume
-      m_refdens(Real_t(1.0))     // 初始密度
-                                 // densité de référence
+               Index_t nx, Int_t tp, Int_t nr,
+               Int_t balance, Int_t cost)
+  :
+    /* Constantes physiques / 物理常数初始化 */
+    m_e_cut(Real_t(1.0e-7)),
+    m_p_cut(Real_t(1.0e-7)),
+    m_q_cut(Real_t(1.0e-7)),
+    m_v_cut(Real_t(1.0e-10)),
+    m_u_cut(Real_t(1.0e-7)),
+    m_hgcoef(Real_t(3.0)),
+    m_ss4o3(Real_t(4.0)/Real_t(3.0)),
+    m_qstop(Real_t(1.0e+12)),
+    m_monoq_max_slope(Real_t(1.0)),
+    m_monoq_limiter_mult(Real_t(2.0)),
+    m_qlc_monoq(Real_t(0.5)),
+    m_qqc_monoq(Real_t(2.0)/Real_t(3.0)),
+    m_qqc(Real_t(2.0)),
+    m_eosvmax(Real_t(1.0e+9)),
+    m_eosvmin(Real_t(1.0e-9)),
+    m_pmin(Real_t(0.0)),
+    m_emin(Real_t(-1.0e+15)),
+    m_dvovmax(Real_t(0.1)),
+    m_refdens(Real_t(1.0)),
+    m_numReg(nr),
+    m_cost(cost),
+    m_numRanks(numRanks)
 {
-    Index_t edgeElems = nx;             // 每边单元数
-                                        // nombre d’éléments par côté
-    Index_t edgeNodes = edgeElems + 1;  // 每边节点数
-                                        // nombre de nœuds par côté
+    /* 
+     * Dimensions globales / 全局网格尺寸
+     */
+    m_tp       = tp;
+    m_colLoc   = colLoc;
+    m_rowLoc   = rowLoc;
+    m_planeLoc = planeLoc;
 
-    this->cost() = cost; // 设置 region 成本
-                         // définie le coût de région
+    Index_t edgeElems = nx;
+    Index_t edgeNodes = nx + 1;
 
-    m_tp       = tp;      // 线程/进程划分参数
-                          // paramètre de décomposition
-    m_numRanks = numRanks; // MPI 总进程数
-                           // nombre total de rangs MPI
-
-    m_colLoc   = colLoc;   // 本 rank 在 X 方向的位置
-                           // position du rang en X
-    m_rowLoc   = rowLoc;   // 本 rank 在 Y 方向的位置
-                           // position du rang en Y
-    m_planeLoc = planeLoc; // 本 rank 在 Z 方向的位置
-                           // position du rang en Z
-    
-    m_sizeX = edgeElems;   // 本子域尺寸 X
-                           // taille du sous-domaine en X
-    m_sizeY = edgeElems;   // 本子域尺寸 Y
-                           // taille du sous-domaine en Y
-    m_sizeZ = edgeElems;   // 本子域尺寸 Z
-                           // taille du sous-domaine en Z
-
-    m_numElem = edgeElems * edgeElems * edgeElems;  
-    // 本子域包含的单元数量
-    // nombre total d’éléments dans ce sous-domaine
-
+    m_sizeX = edgeElems;
+    m_sizeY = edgeElems;
+    m_sizeZ = edgeElems;
+    m_numElem = edgeElems * edgeElems * edgeElems;
     m_numNode = edgeNodes * edgeNodes * edgeNodes;
-    // 本子域包含的节点数量
-    // nombre total de nœuds dans ce sous-domaine
 
-    m_regNumList = new Index_t[numElem()];
-    // region 编号数组（遗留：此处保持原始 new，不进入 Kokkos）
-    // tableau des régions (hérité : reste en new ici)
+    /* 
+     * Allocation des champs nodaux et élémentaires
+     * 分配节点场与单元场 (Kokkos::View)
+     */
+    AllocateElemPersistent(m_numElem);
+    AllocateNodePersistent(m_numNode);
 
-    AllocateElemPersistent(numElem());
-    // 分配单元相关的 persistent View
-    // allocation des View persistants pour les éléments
-
-    AllocateNodePersistent(numNode());
-    // 分配节点相关的 persistent View
-    // allocation des View persistants pour les nœuds
-
-    SetupCommBuffers(edgeNodes);
-    // MPI 边界数据缓冲区初始化
-    // initialisation des buffers de communication
-
-        // 单元场初始化：e, p, q, ss 全为 0
-    // Initialisation des champs élémentaires : e, p, q, ss à zéro
-    Kokkos::parallel_for("InitElemFields", numElem(), KOKKOS_LAMBDA(const Index_t i) {
-        e(i)  = Real_t(0.0);
-        p(i)  = Real_t(0.0);
-        q(i)  = Real_t(0.0);
-        ss(i) = Real_t(0.0);
-    });
-
-    // 初始体积 v = 1.0（重要：不能为 0）
-    // Volume initial v = 1.0 (important : ne doit pas être zéro)
-    Kokkos::parallel_for("InitElemVolume", numElem(), KOKKOS_LAMBDA(const Index_t i) {
-        v(i) = Real_t(1.0);
-    });
-
-    // 节点速度初始化：xd, yd, zd = 0
-    // Initialisation des vitesses nodales : xd, yd, zd = 0
-    Kokkos::parallel_for("InitNodeVel", numNode(), KOKKOS_LAMBDA(const Index_t i) {
-        xd(i) = Real_t(0.0);
-        yd(i) = Real_t(0.0);
-        zd(i) = Real_t(0.0);
-    });
-
-    // 节点加速度初始化：xdd, ydd, zdd = 0
-    // Initialisation des accélérations nodales : xdd, ydd, zdd = 0
-    Kokkos::parallel_for("InitNodeAcc", numNode(), KOKKOS_LAMBDA(const Index_t i) {
-        xdd(i) = Real_t(0.0);
-        ydd(i) = Real_t(0.0);
-        zdd(i) = Real_t(0.0);
-    });
-
-    // 节点质量初始化：nodalMass = 0
-    // Initialisation des masses nodales : nodalMass = 0
-    Kokkos::parallel_for("InitNodeMass", numNode(), KOKKOS_LAMBDA(const Index_t i) {
-        nodalMass(i) = Real_t(0.0);
-    });
-
-    // 构建网格：节点坐标、单元连接关系等
-    // Construction du maillage : coordonnées nodales, connectivité des éléments, etc.
+    /* 
+     * Construction du maillage initial
+     * 构建初始规则网格
+     */
     BuildMesh(nx, edgeNodes, edgeElems);
 
-    #if _OPENMP
-    // 如果启用 OpenMP：创建线程支持结构（根据原始代码保持不动）
-    // Si OpenMP est activé : création des structures de support de threads
-    SetupThreadSupportStructures();
-#else
-    // 未使用 OpenMP：这些指针保持为 NULL
-    // Sans OpenMP : ces pointeurs restent NULL
-    m_nodeElemStart       = NULL;
-    m_nodeElemCornerList  = NULL;
-#endif
+    /* 
+     * Initialisation aléatoire（用于 region sets）
+     * 使用 Kokkos random pool 作为随机源
+     */
+    Kokkos::Random_XorShift64_Pool<> randPool(12345);
 
-    // 创建区域索引集（regNumList）
-    // Création des ensembles d'indices de régions
-    CreateRegionIndexSets(nr, balance);
+    /*
+     * Initialisation des champs élémentaires
+     * 单元物理量初始化为 0
+     */
+    {
+        using ES = Kokkos::DefaultExecutionSpace;
 
-    // 设置对称平面（用于边界条件）
-    // Configuration des plans de symétrie (conditions aux limites)
-    SetupSymmetryPlanes(edgeNodes);
+        Kokkos::parallel_for(
+            "InitElemFields",
+            Kokkos::RangePolicy<ES>(0, m_numElem),
+            KOKKOS_LAMBDA(Index_t i) {
+                // énergie / 内能
+                // pression / 压力
+                // viscosité artificielle / 人工粘性
+                // vitesse du son / 声速
+                e(i)  = Real_t(0.0);
+                p(i)  = Real_t(0.0);
+                q(i)  = Real_t(0.0);
+                ss(i) = Real_t(0.0);
 
-    // 设置单元连接关系（元素-节点）
-    // Définition des connectivités élémentaires (élément → nœuds)
-    SetupElementConnectivities(edgeElems);
-
-    // 设置对称平面/自由面边界条件数组
-    // Configuration des plans de symétrie / conditions de surface libre
-    SetupBoundaryConditions(edgeElems);
-
-        // 默认时间步配置（负数表示使用 Courant 条件）
-    // Paramètres temporels par défaut (valeur négative → utilise la condition CFL)
-    dtfixed() = Real_t(-1.0e-6);
-
-    // 总模拟终止时间
-    // Temps final de la simulation
-    stoptime() = Real_t(1.0e-2);
-
-    // 时间步调整上下限
-    // Limites de variation du pas de temps
-    deltatimemultlb() = Real_t(1.1);
-    deltatimemultub() = Real_t(1.2);
-
-    // Courant 与水动力约束初始为极大值
-    // Contraintes CFL et hydrodynamiques initialisées à des valeurs énormes
-    dtcourant() = Real_t(1.0e+20);
-    dthydro()   = Real_t(1.0e+20);
-
-    // 最大时间步
-    // Pas de temps maximum
-    dtmax() = Real_t(1.0e-2);
-
-    // 起始时间、起始循环计数
-    // Temps initial et compteur de cycle
-    time()  = Real_t(0.0);
-    cycle() = Int_t(0);
-
-        // 根据当前网格与几何，计算每个单元的初始体积 volo 和单元质量 elemMass
-    // Calcul des volumes initiaux volo et des masses élémentaires elemMass
-    for (Index_t i = 0; i < numElem(); ++i) {
-        Real_t x_local[8], y_local[8], z_local[8];
-        Index_t* elemToNode = nodelist(i);
-
-        // 收集单元节点坐标
-        // Récupération des coordonnées nodales de l’élément
-        for (Index_t lnode = 0; lnode < 8; ++lnode) {
-            Index_t gnode = elemToNode[lnode];
-            x_local[lnode] = x(gnode);
-            y_local[lnode] = y(gnode);
-            z_local[lnode] = z(gnode);
-        }
-
-        // 计算单元体积
-        // Calcul du volume de l’élément
-        Real_t volume = CalcElemVolume(x_local, y_local, z_local);
-        volo(i) = volume;
-        elemMass(i) = volume;
-
-        // 平均分配节点质量（每单元 8 个节点）
-        // Répartition uniforme de la masse aux 8 nœuds
-        for (Index_t j = 0; j < 8; ++j) {
-            Index_t idx = elemToNode[j];
-            nodalMass(idx) += volume / Real_t(8.0);
-        }
+                // v initialise à 1.0 / 相对体积初始化为 1.0
+                v(i) = Real_t(1.0);
+            }
+        );
     }
 
-        // 初始能量：按 Sedov 问题比例缩放
-    // Dépôt d’énergie initial selon l’échelle du problème Sedov
+    /*
+     * Initialisation des champs nodaux
+     * 节点速度 / 加速度 / 节点质量初始化为 0
+     */
+    {
+        using ES = Kokkos::DefaultExecutionSpace;
+
+        Kokkos::parallel_for(
+            "InitNodeFields",
+            Kokkos::RangePolicy<ES>(0, m_numNode),
+            KOKKOS_LAMBDA(Index_t i) {
+                xd(i) = Real_t(0.0);
+                yd(i) = Real_t(0.0);
+                zd(i) = Real_t(0.0);
+
+                xdd(i) = Real_t(0.0);
+                ydd(i) = Real_t(0.0);
+                zdd(i) = Real_t(0.0);
+
+                nodalMass(i) = Real_t(0.0);
+            }
+        );
+    }
+
+    /*
+     * Buffers de communication MPI（CPU-only）
+     * MPI 缓冲区（仅保持接口，不做操作）
+     */
+    SetupCommBuffers(edgeNodes);
+
+    /*
+     * Création des régions物
+     * 随机区域划分（使用 random pool, 主机完成）
+     */
+    // CreateRegionIndexSets_Kokkos(nr, balance, randPool);
+    CreateRegionIndexSets(nr, balance);
+
+    /*
+     * Plans de symétrie / 对称平面
+     */
+    SetupSymmetryPlanes(edgeNodes);
+
+    /*
+     * Connectivités élémentaires / 单元连接关系
+     */
+    SetupElementConnectivities(edgeElems);
+
+    /*
+     * Conditions limites / 边界条件
+     */
+    SetupBoundaryConditions(edgeElems);
+    SetupInitialVolumesAndMasses();
+
+
+    /*
+     * Valeurs par défaut（时间推进）
+     * 初值设定（时间推进参数）
+     */
+    dtfixed()        = Real_t(-1.0e-6);
+    stoptime()       = Real_t(1.0e-2);
+    deltatimemultlb() = Real_t(1.1);
+    deltatimemultub() = Real_t(1.2);
+    dtcourant()      = Real_t(1.0e+20);
+    dthydro()        = Real_t(1.0e+20);
+    dtmax()          = Real_t(1.0e-2);
+    time()           = Real_t(0.0);
+    cycle()          = Int_t(0);
+}
+
+/*--------------------------------------------------------------*
+ |   Partie A.2 — Initialisation volumique et énergie initiale  |
+ |   A.2 部分 — 单元体积、质量与初始能量初始化（Kokkos 版本）   |
+ *--------------------------------------------------------------*/
+
+
+    /* 
+     * Calcul des volumes initiaux volo(i) et des masses nodales
+     * 并行计算初始体积 volo(i) 与 nodalMass（每个单元贡献 1/8）
+     *
+     * 注意：需访问单元的 8 个节点坐标，因此使用 parallel_for
+     */
+    
+void Domain::SetupInitialVolumesAndMasses()
+{
+
+    using ES = Kokkos::DefaultExecutionSpace;
+
+    Kokkos::parallel_for(
+        "ComputeInitialVolumesAndMasses",
+        Kokkos::RangePolicy<ES>(0, m_numElem),
+        KOKKOS_LAMBDA(const Index_t i)
+    {
+        Real_t x_local[8], y_local[8], z_local[8];
+
+        /* 
+         * Charger les coordonnées nodales pour l’élément i
+         * 加载单元 i 对应的 8 个节点坐标
+         */
+        Index_t* elemToNode = nodelist(i);
+        for (Index_t lnode = 0; lnode < 8; ++lnode) {
+            Index_t g = elemToNode[lnode];
+            x_local[lnode] = x(g);
+            y_local[lnode] = y(g);
+            z_local[lnode] = z(g);
+        }
+
+        /* 
+         * Volume initial volo(i)
+         * 初始单元体积
+         */
+        Real_t volume = CalcElemVolume(x_local, y_local, z_local);
+        volo(i) = volume;
+
+        /* 
+         * La masse élémentaire = volume (densité initiale = 1)
+         * 单元质量 = 初始体积（密度 = 1）
+         */
+        elemMass(i) = volume;
+
+        /* 
+         * Répartition de masse : chaque nœud reçoit 1/8 de la masse
+         * 将单元质量均匀分配给 8 个节点
+         */
+        Real_t nodalShare = volume / Real_t(8.0);
+
+        for (Index_t j = 0; j < 8; ++j) {
+            Index_t g = elemToNode[j];
+            Kokkos::atomic_add(&nodalMass(g), nodalShare);
+        }
+    });
+
+}
+/*--------------------------------------------------------------------*
+ |   Dépôt d’énergie initiale (Sedov blast)                            |
+ |   初始能量注入（Sedov 爆炸问题的初值设定）                           |
+ *--------------------------------------------------------------------*/
+
+{
+    /* 
+     * Energie analytique correcte pour un problème 45³
+     * 对标准 45³ Sedov 问题，正确能量为 3.948746e7
+     */
     const Real_t ebase = Real_t(3.948746e+7);
+
+    /*
+     * Mise à l’échelle selon la taille nx*m_tp
+     * 根据网格与分块缩放能量
+     */
     Real_t scale = (nx * m_tp) / Real_t(45.0);
     Real_t einit = ebase * scale * scale * scale;
 
-    // 仅 rank(0,0,0) 在第 0 个单元放入能量冲击
-    // Seul le rang (0,0,0) dépose l’énergie dans l’élément 0
+    /*
+     * Injection d’énergie dans le premier élément du coin (rang 0)
+     * 仅 rank=0 的 (0,0,0) 单元接收爆炸能量
+     */
     if (m_rowLoc + m_colLoc + m_planeLoc == 0) {
         e(0) = einit;
     }
 
-    // 初始时间步 = 0.5 * h / sqrt(2E)
-    // Pas de temps initial basé sur CFL analytique : 0.5*h / sqrt(2E)
-    deltatime() = (Real_t(.5) * cbrt(volo(0))) / sqrt(Real_t(2.0) * einit);
-}
-Domain::~Domain() {}
-
-void Domain::BuildMesh(Int_t nx, Int_t edgeNodes, Int_t edgeElems)
-{
-  Index_t meshEdgeElems = m_tp * nx;
-
-  // 初始化节点坐标
-  // Initialisation des coordonnées nodales
-  Index_t nidx = 0;
-  Real_t tz = Real_t(1.125) * Real_t(m_planeLoc * nx) / Real_t(meshEdgeElems);
-
-  for (Index_t plane = 0; plane < edgeNodes; ++plane) {
-    Real_t ty = Real_t(1.125) * Real_t(m_rowLoc * nx) / Real_t(meshEdgeElems);
-    for (Index_t row = 0; row < edgeNodes; ++row) {
-      Real_t tx = Real_t(1.125) * Real_t(m_colLoc * nx) / Real_t(meshEdgeElems);
-      for (Index_t col = 0; col < edgeNodes; ++col) {
-        x(nidx) = tx;
-        y(nidx) = ty;
-        z(nidx) = tz;
-        ++nidx;
-
-        // 避免累积误差：直接计算下一列 tx
-        // Pour éviter l’accumulation d’erreurs : tx recalculé directement
-        tx = Real_t(1.125) * Real_t(m_colLoc * nx + col + 1) / Real_t(meshEdgeElems);
-      }
-
-      // 直接计算下一行 ty
-      // Recalcul direct de ty
-      ty = Real_t(1.125) * Real_t(m_rowLoc * nx + row + 1) / Real_t(meshEdgeElems);
-    }
-
-    // 直接计算下一层 tz
-    // Recalcul direct de tz
-    tz = Real_t(1.125) * Real_t(m_planeLoc * nx + plane + 1) / Real_t(meshEdgeElems);
-  }
-
-  // 构建六面体单元与节点的连接关系
-  // Construction de la connectivité éléments–nœuds (hexaèdres)
-  Index_t zidx = 0;
-  nidx = 0;
-
-  for (Index_t plane = 0; plane < edgeElems; ++plane) {
-    for (Index_t row = 0; row < edgeElems; ++row) {
-      for (Index_t col = 0; col < edgeElems; ++col) {
-
-        Index_t* localNode = nodelist(zidx);
-
-        localNode[0] = nidx;
-        localNode[1] = nidx + 1;
-        localNode[2] = nidx + edgeNodes + 1;
-        localNode[3] = nidx + edgeNodes;
-        localNode[4] = nidx + edgeNodes * edgeNodes;
-        localNode[5] = nidx + edgeNodes * edgeNodes + 1;
-        localNode[6] = nidx + edgeNodes * edgeNodes + edgeNodes + 1;
-        localNode[7] = nidx + edgeNodes * edgeNodes + edgeNodes;
-
-        ++zidx;
-        ++nidx;
-      }
-      ++nidx;
-    }
-    nidx += edgeNodes;
-  }
-}
-
-void Domain::SetupThreadSupportStructures()
-{
-#if _OPENMP
-  Index_t numthreads = omp_get_max_threads();
-#else
-  Index_t numthreads = 1;
-#endif
-
-  if (numthreads > 1) {
-
-    // 每个节点关联的单元角点数量
-    // Nombre de coins d’éléments associés à chaque nœud
-    Index_t* nodeElemCount = new Index_t[numNode()];
-    for (Index_t i = 0; i < numNode(); ++i) nodeElemCount[i] = 0;
-
-    // 统计每个节点出现的次数
-    // Comptage des occurrences nodales
-    for (Index_t i = 0; i < numElem(); ++i) {
-      Index_t* nl = nodelist(i);
-      for (Index_t j = 0; j < 8; ++j)
-        ++nodeElemCount[nl[j]];
-    }
-
-    // 前缀和：确定每个节点的起始偏移
-    // Préfixe : calcule l’offset de départ pour chaque nœud
-    m_nodeElemStart = new Index_t[numNode() + 1];
-    m_nodeElemStart[0] = 0;
-    for (Index_t i = 1; i <= numNode(); ++i) {
-      m_nodeElemStart[i] = m_nodeElemStart[i - 1] + nodeElemCount[i - 1];
-    }
-
-    // 存储每个节点关联的单元角点索引
-    // Stocke les coins d’éléments associés aux nœuds
-    m_nodeElemCornerList = new Index_t[m_nodeElemStart[numNode()]];
-
-    // 重置统计数组
-    // Réinitialisation du compteur
-    for (Index_t i = 0; i < numNode(); ++i) nodeElemCount[i] = 0;
-
-    // 填充 cornerList（每个节点对应的单元角点索引）
-    // Remplissage de cornerList
-    for (Index_t i = 0; i < numElem(); ++i) {
-      Index_t* nl = nodelist(i);
-      for (Index_t j = 0; j < 8; ++j) {
-        Index_t m = nl[j];
-        Index_t k = i * 8 + j;
-        Index_t offset = m_nodeElemStart[m] + nodeElemCount[m];
-        m_nodeElemCornerList[offset] = k;
-        ++nodeElemCount[m];
-      }
-    }
-
-    // 基本越界检查
-    // Vérification de débordement
-    Index_t clSize = m_nodeElemStart[numNode()];
-    for (Index_t i = 0; i < clSize; ++i) {
-      Index_t clv = m_nodeElemCornerList[i];
-      if (clv < 0 || clv > numElem() * 8) {
-        fprintf(stderr, "AllocateNodeElemIndexes(): nodeElemCornerList entry out of range!\n");
-#if USE_MPI
-        MPI_Abort(MPI_COMM_WORLD, -1);
-#else
-        exit(-1);
-#endif
-      }
-    }
-
-    delete[] nodeElemCount;
-  }
-  else {
-    // 非线程环境下不使用这些结构
-    // Non utilisé sans threading
-    m_nodeElemStart = NULL;
-    m_nodeElemCornerList = NULL;
-  }
-}
-
-void Domain::SetupCommBuffers(Int_t edgeNodes)
-{
-  // 分配足够大的缓冲区用于幽灵节点数据
-  // Alloue un tampon suffisamment grand pour les données fantômes nodales
-  Index_t maxEdgeSize = MAX(this->sizeX(), MAX(this->sizeY(), this->sizeZ())) + 1;
-  m_maxPlaneSize = CACHE_ALIGN_REAL(maxEdgeSize * maxEdgeSize);
-  m_maxEdgeSize  = CACHE_ALIGN_REAL(maxEdgeSize);
-
-  // 默认情况下假设与六个相邻子域通信
-  // Suppose une communication avec 6 voisins par défaut
-  m_rowMin   = (m_rowLoc   == 0)        ? 0 : 1;
-  m_rowMax   = (m_rowLoc   == m_tp - 1) ? 0 : 1;
-  m_colMin   = (m_colLoc   == 0)        ? 0 : 1;
-  m_colMax   = (m_colLoc   == m_tp - 1) ? 0 : 1;
-  m_planeMin = (m_planeLoc == 0)        ? 0 : 1;
-  m_planeMax = (m_planeLoc == m_tp - 1) ? 0 : 1;
-
-#if USE_MPI
-  // 面通信大小
-  // Taille de communication par faces
-  Index_t comBufSize =
-      (m_rowMin + m_rowMax + m_colMin + m_colMax + m_planeMin + m_planeMax) *
-      m_maxPlaneSize * MAX_FIELDS_PER_MPI_COMM;
-
-  // 棱通信大小
-  // Taille de communication par arêtes
-  comBufSize +=
-      ((m_rowMin & m_colMin) +
-       (m_rowMin & m_planeMin) +
-       (m_colMin & m_planeMin) +
-       (m_rowMax & m_colMax) +
-       (m_rowMax & m_planeMax) +
-       (m_colMax & m_planeMax) +
-       (m_rowMax & m_colMin) +
-       (m_rowMin & m_planeMax) +
-       (m_colMin & m_planeMax) +
-       (m_rowMin & m_colMax) +
-       (m_rowMax & m_planeMin) +
-       (m_colMax & m_planeMin)) *
-      m_maxEdgeSize * MAX_FIELDS_PER_MPI_COMM;
-
-  // 角通信大小（×16 以确保缓存行隔离）
-  // Taille de communication par coins (×16 pour isoler les lignes de cache)
-  comBufSize +=
-      ((m_rowMin & m_colMin & m_planeMin) +
-       (m_rowMin & m_colMin & m_planeMax) +
-       (m_rowMin & m_colMax & m_planeMin) +
-       (m_rowMin & m_colMax & m_planeMax) +
-       (m_rowMax & m_colMin & m_planeMin) +
-       (m_rowMax & m_colMin & m_planeMax) +
-       (m_rowMax & m_colMax & m_planeMin) +
-       (m_rowMax & m_colMax & m_planeMax)) *
-      CACHE_COHERENCE_PAD_REAL;
-
-  // 分配发送与接收缓冲区
-  // Allocation des tampons d’envoi et de réception
-  this->commDataSend = new Real_t[comBufSize];
-  this->commDataRecv = new Real_t[comBufSize];
-
-  // 防止浮点异常：全部置零
-  // Pour éviter les exceptions flottantes : mise à zéro
-  memset(this->commDataSend, 0, comBufSize * sizeof(Real_t));
-  memset(this->commDataRecv, 0, comBufSize * sizeof(Real_t));
-#endif
-
-  // 边界节点集合（仅在对应物理边界处创建）
-  // Ensembles de nœuds frontières (créés seulement sur les vraies frontières)
-  if (m_colLoc == 0)
-    m_symmX.resize(edgeNodes * edgeNodes);
-
-  if (m_rowLoc == 0)
-    m_symmY.resize(edgeNodes * edgeNodes);
-
-  if (m_planeLoc == 0)
-    m_symmZ.resize(edgeNodes * edgeNodes);
+    /*
+     * Initialisation du pas de temps basé sur CFL analytique
+     * 使用解析 CFL 条件初始化时间步长
+     * dt = 0.5 * cbrt(volo(0)) / sqrt(2 * E_init)
+     */
+    Real_t v0 = volo(0);
+    deltatime() = (Real_t(0.5) * cbrt(v0)) / sqrt(Real_t(2.0) * einit);
 }
 
 void Domain::CreateRegionIndexSets(Int_t nr, Int_t balance)
 {
-#if USE_MPI
-  Index_t myRank;
-  MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
-  // 用 MPI rank 初始化随机数种子
-  // Initialise la graine aléatoire avec le rang MPI
-  srand(myRank);
-#else
-  srand(0);
-  Index_t myRank = 0;
-#endif
+  // 中文：初始化随机池（用于区域分布）
+  // 法语：Initialiser le pool aléatoire (pour la distribution des régions)
+  using ExecSpace = Kokkos::DefaultExecutionSpace;
+  Kokkos::Random_XorShift64_Pool<ExecSpace> randPool(12345);
 
-  this->numReg() = nr;
-  m_regElemSize = new Index_t[numReg()];
-  m_regElemlist = new Index_t*[numReg()];
 
-  Index_t nextIndex = 0;
+  // 中文：设置区域数量
+  // 法语：Définir le nombre total de régions
+  numReg() = nr;
 
-  // 若只有一个区域，则所有单元都属于区域 1
-  // Si une seule région, tous les éléments appartiennent à la région 1
-  if (numReg() == 1) {
-    while (nextIndex < numElem()) {
-      this->regNumList(nextIndex) = 1;
-      nextIndex++;
-    }
-    regElemSize(0) = 0;
+  // 中文：为区域尺寸数组分配空间（大小 = nr）
+  // 法语：Allouer l’espace pour la taille des régions (taille = nr)
+  m_regElemSize = Kokkos::View<Index_t*>("regElemSize", nr);
+
+  // 中文：分配 regNumList（每个元素属于哪个区域）
+  // 法语：Allouer regNumList (chaque élément → numéro de région)
+  m_regNumList = Kokkos::View<Index_t*>("regNumList", numElem());
+
+  // 中文：regElemlist 是二维 View（每个区域一个列表）
+  // 法语：regElemlist est un View 2D (une liste par région)
+  // 第一阶段还不知道每个区域大小，稍后 allocate。
+  m_regElemlist = Kokkos::View<Index_t**>("regElemlist", nr, numElem());
+
+  // ------------------------------
+  // Host mirrors（因为区域生成是严格串行算法）
+  // ------------------------------
+  auto h_regElemSize = Kokkos::create_mirror_view(m_regElemSize);
+  auto h_regNumList  = Kokkos::create_mirror_view(m_regNumList);
+
+  // 中文：用于权重概率分布
+  // 法语：Distribution de probabilité basée sur les poids
+  std::vector<Int_t> regBinEnd(nr);
+
+  Int_t nextIndex = 0;
+  Int_t lastReg = -1;
+
+  // ------------------------------
+  // 情况 1：只存在一个区域
+  // ------------------------------
+  if (nr == 1) {
+    for (Index_t i = 0; i < numElem(); ++i)
+      h_regNumList(i) = 1;   // 区域编号 = 1
+
+    h_regElemSize(0) = numElem();
+
+    // 同步到 device
+    Kokkos::deep_copy(m_regElemSize, h_regElemSize);
+    Kokkos::deep_copy(m_regNumList,  h_regNumList);
+    return;
   }
 
-  // 多区域时，按权重随机分配区域
-  // Pour plusieurs régions, répartition aléatoire pondérée
-  else {
-    Int_t regionNum;
-    Int_t regionVar;
-    Int_t lastReg = -1;
-    Int_t binSize;
+  // ------------------------------
+  // 情况 2：多个区域，随机分配
+  // ------------------------------
+
+  // 中文：计算区域权重分布  Σ (i+1)^balance
+  // 法语：Calculer les poids des régions  Σ (i+1)^balance
+  Int_t costDen = 0;
+  for (Int_t i=0; i<nr; ++i) {
+    costDen += std::pow(i+1, balance);
+    regBinEnd[i] = costDen;
+    h_regElemSize(i) = 0;
+  }
+
+  // 中文：从 RandomPool 获取 RNG 实例
+  // 法语：Obtenir un générateur aléatoire depuis le RandomPool
+  auto rand_gen = rand_pool.get_state();
+
+  while (nextIndex < numElem()) {
+
+    // -------- 区域选择：按权重 --------
+    Int_t rnum = rand_gen.rand_int(costDen);
+    Int_t idx = 0;
+    while (rnum >= regBinEnd[idx]) idx++;
+
+    // 中文：旋转区域编号，使不同 rank 分布不同（目前 rank=0）
+    // 法语：Rotation du numéro de région (rank=0 dans ce cas)
+    Int_t region = idx + 1;
+
+    // 中文：避免连续两次选同一区域
+    // 法语：Éviter de choisir deux fois de suite la même région
+    while (region == lastReg) {
+      rnum = rand_gen.rand_int(costDen);
+      idx = 0;
+      while (rnum >= regBinEnd[idx]) idx++;
+      region = idx + 1;
+    }
+
+    // -------- 计算 binSize（决定一次分配多少元素） --------
+    Int_t binSize = rand_gen.rand_int(1000);
     Index_t elements;
-    Index_t runto = 0;
-    Int_t costDenominator = 0;
 
-    Int_t* regBinEnd = new Int_t[numReg()];
+    if (binSize < 773)        elements = rand_gen.rand_int(15) + 1;
+    else if (binSize < 937)   elements = rand_gen.rand_int(16) + 16;
+    else if (binSize < 970)   elements = rand_gen.rand_int(32) + 32;
+    else if (binSize < 974)   elements = rand_gen.rand_int(64) + 64;
+    else if (binSize < 978)   elements = rand_gen.rand_int(128) + 128;
+    else if (binSize < 981)   elements = rand_gen.rand_int(256) + 256;
+    else                      elements = rand_gen.rand_int(1537) + 512;
 
-    // 根据负载平衡参数 balance（-b 选项）建立各区域权重
-    // Calcule les poids relatifs selon le paramètre balance (-b)
-    for (Index_t i = 0; i < numReg(); ++i) {
-      regElemSize(i) = 0;
-      costDenominator += pow((i + 1), balance);
-      regBinEnd[i] = costDenominator;
+    Index_t runto = nextIndex + elements;
+
+    // -------- 将元素分配到区域 --------
+    while (nextIndex < runto && nextIndex < numElem()) {
+      h_regNumList(nextIndex) = region;
+      nextIndex++;
+      h_regElemSize(region-1)++;
     }
 
-    // 持续分配直到所有单元分配完
-    // Continue jusqu’à ce que tous les éléments soient assignés
-    while (nextIndex < numElem()) {
-
-      regionVar = rand() % costDenominator;
-      Index_t i = 0;
-      while (regionVar >= regBinEnd[i])
-        i++;
-
-      // 根据 rank 做循环旋转，使不同 rank 具有不同主导区域
-      // Rotation selon le rang MPI pour diversifier les régions dominantes
-      regionNum = ((i + myRank) % numReg()) + 1;
-
-      // 避免连续选择相同区域
-      // Évite de sélectionner deux fois la même région
-      while (regionNum == lastReg) {
-        regionVar = rand() % costDenominator;
-        i = 0;
-        while (regionVar >= regBinEnd[i])
-          i++;
-        regionNum = ((i + myRank) % numReg()) + 1;
-      }
-
-      // 随机决定当前区域块的大小
-      // Détermine aléatoirement la taille du bloc d’éléments
-      binSize = rand() % 1000;
-      if (binSize < 773) {
-        elements = rand() % 15 + 1;
-      }
-      else if (binSize < 937) {
-        elements = rand() % 16 + 16;
-      }
-      else if (binSize < 970) {
-        elements = rand() % 32 + 32;
-      }
-      else if (binSize < 974) {
-        elements = rand() % 64 + 64;
-      }
-      else if (binSize < 978) {
-        elements = rand() % 128 + 128;
-      }
-      else if (binSize < 981) {
-        elements = rand() % 256 + 256;
-      }
-      else {
-        elements = rand() % 1537 + 512;
-      }
-
-      runto = elements + nextIndex;
-
-      // 将当前区域的单元编号写入 regNumList
-      // Assigne les éléments sélectionnés à la région choisie
-      while (nextIndex < runto && nextIndex < numElem()) {
-        this->regNumList(nextIndex) = regionNum;
-        nextIndex++;
-      }
-
-      lastReg = regionNum;
-    }
+    lastReg = region;
   }
 
-  // 将 regNumList 转换为区域索引集（列表）
-  // Convertit regNumList en listes d’index de régions
+  // 归还 RNG
+  rand_pool.free_state(rand_gen);
 
-  // 统计每个区域大小
-  // Compte la taille de chaque région
-  for (Index_t i = 0; i < numElem(); ++i) {
-    int r = this->regNumList(i) - 1;
-    regElemSize(r)++;
+  // 同步回 device
+  Kokkos::deep_copy(m_regElemSize, h_regElemSize);
+  Kokkos::deep_copy(m_regNumList,  h_regNumList);
+
+  // -----------------------------
+  // 建立 regElemlist（二次扫描）
+  // -----------------------------
+  auto h_regElemlist = Kokkos::create_mirror_view(m_regElemlist);
+
+  // 清零计数器
+  std::vector<Index_t> offset(nr, 0);
+
+  for (Index_t elem = 0; elem < numElem(); ++elem) {
+    Index_t r = h_regNumList(elem) - 1;
+    Index_t pos = offset[r]++;
+    h_regElemlist(r, pos) = elem;
   }
 
-  // 为每个区域分配 index 列表
-  // Alloue la liste d’index pour chaque région
-  for (Index_t i = 0; i < numReg(); ++i) {
-    m_regElemlist[i] = new Index_t[regElemSize(i)];
-    regElemSize(i) = 0;
-  }
-
-  // 填充 index 列表
-  // Remplit les listes d’index
-  for (Index_t i = 0; i < numElem(); ++i) {
-    Index_t r = regNumList(i) - 1;
-    Index_t regndx = regElemSize(r)++;
-    regElemlist(r, regndx) = i;
-  }
+  // 最终同步到 device
+  Kokkos::deep_copy(m_regElemlist, h_regElemlist);
 }
 
 void Domain::SetupSymmetryPlanes(Int_t edgeNodes)
 {
+  // 中文：设置对称平面的节点索引列表
+  // 法语：Initialiser les listes d’indices de nœuds pour les plans de symétrie
+
   Index_t nidx = 0;
 
-  // 遍历所有节点层
-  // Parcourt toutes les couches de nœuds
+  // 中文：三重循环生成所有节点的平面位置
+  // 法语：Boucles imbriquées générant la position plane/ligne/colonne de chaque nœud
   for (Index_t i = 0; i < edgeNodes; ++i) {
 
-    Index_t planeInc = i * edgeNodes * edgeNodes;
-    // 当前层的平面偏移
-    // Décalage du plan pour cette couche
-
-    Index_t rowInc = i * edgeNodes;
-    // 当前层的行偏移
-    // Décalage de ligne pour cette couche
+    Index_t planeInc = i * edgeNodes * edgeNodes;   // 中文：平面偏移量；法语：Décalage du plan
+    Index_t rowInc   = i * edgeNodes;               // 中文：行偏移量；法语：Décalage de ligne
 
     for (Index_t j = 0; j < edgeNodes; ++j) {
 
+      // --------------------
+      // Z- 对称平面
+      // --------------------
       if (m_planeLoc == 0) {
-        m_symmZ[nidx] = rowInc + j;
-        // Z=0 面的对称节点索引
-        // Index du nœud symétrique sur le plan Z=0
+        // 中文：Z 最小方向的对称面 → 记录该节点索引
+        // 法语：Plan de symétrie Z-min → enregistrer l’indice du nœud
+        m_symmZ(nidx) = rowInc + j;
       }
 
+      // --------------------
+      // Y- 对称平面
+      // --------------------
       if (m_rowLoc == 0) {
-        m_symmY[nidx] = planeInc + j;
-        // Y=0 面的对称节点索引
-        // Index du nœud symétrique sur le plan Y=0
+        // 中文：Y 最小方向的对称面
+        // 法语：Plan de symétrie Y-min
+        m_symmY(nidx) = planeInc + j;
       }
 
+      // --------------------
+      // X- 对称平面
+      // --------------------
       if (m_colLoc == 0) {
-        m_symmX[nidx] = planeInc + j * edgeNodes;
-        // X=0 面的对称节点索引
-        // Index du nœud symétrique sur le plan X=0
+        // 中文：X 最小方向的对称面
+        // 法语：Plan de symétrie X-min
+        m_symmX(nidx) = planeInc + j * edgeNodes;
       }
 
       ++nidx;
-      // 增加全局节点编号
-      // Incrémente l’index global du nœud
     }
   }
 }
 
 void Domain::SetupElementConnectivities(Int_t edgeElems)
 {
+  /* 
+     Français : Préparer la connectivité élément → voisin dans les trois directions (ξ, η, ζ).
+     中文：初始化单元在三方向（ξ, η, ζ）上的邻接关系（前向与后向）。
+  */
+
+  // ------------------------------------------------------------
+  // Direction ξ (colonne) : lxim / lxip
+  // ------------------------------------------------------------
+  // Français : Pour ξ-, le premier élément n’a pas de voisin → s’auto-référence.
+  // 中文：ξ 方向负侧的第一个单元没有邻居 → 指向自己。
   lxim(0) = 0;
-  // 第一个单元在 X- 方向没有左邻居
-  // Le premier élément n’a pas de voisin en direction X-
 
   for (Index_t i = 1; i < numElem(); ++i) {
+    // Français : voisin ξ- = élément précédent
+    // 中文：ξ 负方向邻居 = 前一个单元
     lxim(i) = i - 1;
-    // 每个单元的 X- 邻居是前一个单元
-    // Le voisin X- est l’élément précédent
 
+    // Français : voisin ξ+ du précédent = cet élément
+    // 中文：ξ 正方向邻居（前一个单元的正向）= 当前单元
     lxip(i - 1) = i;
-    // 每个单元的 X+ 邻居是下一个单元
-    // Le voisin X+ est l’élément suivant
   }
 
+  // Français : Le dernier élément n’a pas de voisin ξ+ → auto-référence.
+  // 中文：最后一个单元在 ξ+ 方向没有邻居 → 指向自己。
   lxip(numElem() - 1) = numElem() - 1;
-  // 最后一个单元在 X+ 方向没有邻居
-  // Le dernier élément n’a pas de voisin en direction X+
 
-
-  // 设置 η（Y方向）邻居
-  // Définit les voisins η (direction Y)
+  // ------------------------------------------------------------
+  // Direction η (ligne) : letam / letap
+  // ------------------------------------------------------------
   for (Index_t i = 0; i < edgeElems; ++i) {
+    // Français : bord η- → pas de voisin, auto-référence
+    // 中文：η 最小边界 → 无邻居，指向自己
     letam(i) = i;
-    // 最顶部一行没有 η− 邻居
-    // La première ligne n’a pas de voisin en η−
 
+    // Français : bord η+ → dernier plan, auto-référence
+    // 中文：η 最大边界 → 最后一个平面，指向自己
     letap(numElem() - edgeElems + i) = numElem() - edgeElems + i;
-    // 最底部一行没有 η+ 邻居
-    // La dernière ligne n’a pas de voisin en η+
   }
 
   for (Index_t i = edgeElems; i < numElem(); ++i) {
+    // Français : voisin η- = un plan plus bas
+    // 中文：η 方向负邻居 = 往下移动一个平面
     letam(i) = i - edgeElems;
-    // η− 邻居为上方 edgeElems 之前
-    // Le voisin η− est edgeElems éléments au-dessus
 
+    // Français : voisin η+ du plan inférieur = cet élément
+    // 中文：η 正方向邻居（下一个平面）= 当前单元
     letap(i - edgeElems) = i;
-    // η+ 邻居为下方 edgeElems 之后
-    // Le voisin η+ est edgeElems éléments en dessous
   }
 
-
-  // 设置 ζ（Z方向）邻居
-  // Définit les voisins ζ (direction Z)
+  // ------------------------------------------------------------
+  // Direction ζ (plan) : lzetam / lzetap
+  // ------------------------------------------------------------
   for (Index_t i = 0; i < edgeElems * edgeElems; ++i) {
+    // Français : bord ζ- → auto-référence
+    // 中文：ζ 最小面 → 指向自己
     lzetam(i) = i;
-    // 最顶部平面没有 ζ− 邻居
-    // Le premier plan n’a pas de voisin en ζ−
 
+    // Français : bord ζ+ du dernier plan → auto-référence
+    // 中文：ζ 最大面（最后一个大平面）→ 指向自己
     lzetap(numElem() - edgeElems * edgeElems + i) =
         numElem() - edgeElems * edgeElems + i;
-    // 最底部平面没有 ζ+ 邻居
-    // Le dernier plan n’a pas de voisin en ζ+
   }
 
   for (Index_t i = edgeElems * edgeElems; i < numElem(); ++i) {
+    // Français : voisin ζ- = un bloc de edgeElems² éléments plus bas
+    // 中文：ζ 负方向邻居 = 往下移动 edgeElems² 个单元（跨一个大平面）
     lzetam(i) = i - edgeElems * edgeElems;
-    // ζ− 邻居为上一平面
-    // Le voisin ζ− est un plan au-dessus
 
+    // Français : voisin ζ+ du bloc inférieur = cet élément
+    // 中文：ζ 正方向邻居（上一个大平面）= 当前单元
     lzetap(i - edgeElems * edgeElems) = i;
-    // ζ+ 邻居为下一平面
-    // Le voisin ζ+ est un plan en dessous
   }
 }
 
 void Domain::SetupBoundaryConditions(Int_t edgeElems)
 {
-  Index_t ghostIdx[6];  
-  // ghostIdx：每个方向的 ghost 区在全局索引中的起始偏移
-  // ghostIdx : décalage initial des zones fantômes dans chaque direction
+  /*
+     Français : Initialiser les conditions aux limites pour chaque élément du maillage.
+                Inclut les plans de symétrie, surfaces libres, et références aux fantômes.
+     中文：为网格中的每个单元初始化边界条件，包括对称面、自由面、以及幽灵单元的引用。
+  */
 
+  Index_t ghostIdx[6];
+
+  // ------------------------------------------------------------
+  // 1) Initialiser elemBC : aucune condition au début
+  // ------------------------------------------------------------
+  // Français : aucune condition appliquée au départ
+  // 中文：初始所有单元边界条件设为 0
   for (Index_t i = 0; i < numElem(); ++i) {
     elemBC(i) = Int_t(0);
-    // 初始化所有单元的边界条件标志为 0
-    // Initialise tous les indicateurs de condition aux limites à 0
   }
 
+  // ------------------------------------------------------------
+  // 2) Initialiser ghostIdx[] avec INT_MIN (invalide)
+  // ------------------------------------------------------------
+  // Français : valeurs invalides par défaut (aucun fantôme)
+  // 中文：默认无幽灵单元，用 INT_MIN 标记
   for (Index_t i = 0; i < 6; ++i) {
     ghostIdx[i] = INT_MIN;
-    // 默认 ghost 区索引设为 INT_MIN（无效）
-    // Par défaut, l’index des zones fantômes est INT_MIN (invalide)
   }
 
+  // ------------------------------------------------------------
+  // 3) Calculer offsets pour les ghost cells
+  // ------------------------------------------------------------
+  // Français : position de départ pour stocker les fantômes
+  // 中文：确定幽灵单元在扩展域中的偏移起始位置
   Int_t pidx = numElem();
-  // pidx：ghost 区起始位置 = 本地单元数量之后
-  // pidx : début des zones fantômes = après les éléments locaux
 
   if (m_planeMin != 0) {
     ghostIdx[0] = pidx;
     pidx += sizeX() * sizeY();
-    // 如果存在下方平面邻域，则分配 ζ− ghost 平面
-    // Si un voisin existe sur le plan inférieur, alloue le plan fantôme ζ−
   }
 
   if (m_planeMax != 0) {
     ghostIdx[1] = pidx;
     pidx += sizeX() * sizeY();
-    // ζ+ ghost 平面
-    // Plan fantôme ζ+
   }
 
   if (m_rowMin != 0) {
     ghostIdx[2] = pidx;
     pidx += sizeX() * sizeZ();
-    // η− ghost 行
-    // Ligne fantôme η−
   }
 
   if (m_rowMax != 0) {
     ghostIdx[3] = pidx;
     pidx += sizeX() * sizeZ();
-    // η+ ghost 行
-    // Ligne fantôme η+
   }
 
   if (m_colMin != 0) {
     ghostIdx[4] = pidx;
     pidx += sizeY() * sizeZ();
-    // ξ− ghost 列
-    // Colonne fantôme ξ−
   }
 
   if (m_colMax != 0) {
     ghostIdx[5] = pidx;
-    // ξ+ ghost 列
-    // Colonne fantôme ξ+
   }
 
-  // 设置 6 个方向的对称面或通信面
-  // Applique les plans de symétrie ou de communication
+  // ------------------------------------------------------------
+  // 4) Appliquer conditions aux limites pour chaque élément
+  // ------------------------------------------------------------
+  // Français : parcourir chaque couche, ligne, colonne
+  // 中文：逐层逐行逐列初始化边界条件
   for (Index_t i = 0; i < edgeElems; ++i) {
-
     Index_t planeInc = i * edgeElems * edgeElems;
-    // 每一层平面偏移
-    // Décalage du plan
-
-    Index_t rowInc = i * edgeElems;
-    // 每一层行偏移
-    // Décalage de ligne
+    Index_t rowInc   = i * edgeElems;
 
     for (Index_t j = 0; j < edgeElems; ++j) {
 
-      // ζ− BC
+      // --------------------------------------------------------
+      // ZETA_M : direction ζ- (面向最小 plane)
+      // --------------------------------------------------------
       if (m_planeLoc == 0) {
+        // Français : symétrie au plan ζ-
+        // 中文：ζ− 方向为对称面
         elemBC(rowInc + j) |= ZETA_M_SYMM;
-        // 下平面在 Z=0，是对称面
-        // Le plan inférieur Z=0 est un plan de symétrie
-      }
-      else {
+      } else {
         elemBC(rowInc + j) |= ZETA_M_COMM;
         lzetam(rowInc + j) = ghostIdx[0] + rowInc + j;
-        // 否则为通信面，指向 ghost 区
-        // Sinon, c’est une face de communication vers la zone fantôme
       }
 
-      // ζ+ BC
+      // --------------------------------------------------------
+      // ZETA_P : direction ζ+ (最大 plane)
+      // --------------------------------------------------------
+      Index_t zpIdx = rowInc + j + numElem() - edgeElems * edgeElems;
       if (m_planeLoc == m_tp - 1) {
-        elemBC(rowInc + j + numElem() - edgeElems * edgeElems) |= ZETA_P_FREE;
-        // 上平面为自由边界
-        // Le plan supérieur est une surface libre
-      }
-      else {
-        elemBC(rowInc + j + numElem() - edgeElems * edgeElems) |= ZETA_P_COMM;
-        lzetap(rowInc + j + numElem() - edgeElems * edgeElems) =
-            ghostIdx[1] + rowInc + j;
-        // 否则为通信面
-        // Sinon, face de communication
+        elemBC(zpIdx) |= ZETA_P_FREE;  // surface libre
+      } else {
+        elemBC(zpIdx) |= ZETA_P_COMM;
+        lzetap(zpIdx) = ghostIdx[1] + rowInc + j;
       }
 
-      // η− BC
+      // --------------------------------------------------------
+      // ETA_M : direction η- (最小 row)
+      // --------------------------------------------------------
       if (m_rowLoc == 0) {
         elemBC(planeInc + j) |= ETA_M_SYMM;
-        // Y=0 面为对称面
-        // Le plan Y=0 est un plan de symétrie
-      }
-      else {
+      } else {
         elemBC(planeInc + j) |= ETA_M_COMM;
         letam(planeInc + j) = ghostIdx[2] + rowInc + j;
-        // 否则通信
-        // Sinon, communication
       }
 
-      // η+ BC
+      // --------------------------------------------------------
+      // ETA_P : direction η+ (最大 row)
+      // --------------------------------------------------------
+      Index_t epIdx = planeInc + j + edgeElems * edgeElems - edgeElems;
       if (m_rowLoc == m_tp - 1) {
-        elemBC(planeInc + j + edgeElems * edgeElems - edgeElems) |= ETA_P_FREE;
-        // 最后一行是自由边界
-        // La dernière ligne est une surface libre
-      }
-      else {
-        elemBC(planeInc + j + edgeElems * edgeElems - edgeElems) |= ETA_P_COMM;
-        letap(planeInc + j + edgeElems * edgeElems - edgeElems) =
-            ghostIdx[3] + rowInc + j;
+        elemBC(epIdx) |= ETA_P_FREE;
+      } else {
+        elemBC(epIdx) |= ETA_P_COMM;
+        letap(epIdx) = ghostIdx[3] + rowInc + j;
       }
 
-      // ξ− BC
+      // --------------------------------------------------------
+      // XI_M : direction ξ- (最小 col)
+      // --------------------------------------------------------
       if (m_colLoc == 0) {
         elemBC(planeInc + j * edgeElems) |= XI_M_SYMM;
-        // X=0 面对称
-        // Le plan X=0 est symétrique
-      }
-      else {
+      } else {
         elemBC(planeInc + j * edgeElems) |= XI_M_COMM;
         lxim(planeInc + j * edgeElems) = ghostIdx[4] + rowInc + j;
       }
 
-      // ξ+ BC
+      // --------------------------------------------------------
+      // XI_P : direction ξ+ (最大 col)
+      // --------------------------------------------------------
+      Index_t xpIdx = planeInc + j * edgeElems + edgeElems - 1;
       if (m_colLoc == m_tp - 1) {
-        elemBC(planeInc + j * edgeElems + edgeElems - 1) |= XI_P_FREE;
-        // X 最大面是自由边界
-        // Le plan X_max est une surface libre
-      }
-      else {
-        elemBC(planeInc + j * edgeElems + edgeElems - 1) |= XI_P_COMM;
-        lxip(planeInc + j * edgeElems + edgeElems - 1) =
-            ghostIdx[5] + rowInc + j;
+        elemBC(xpIdx) |= XI_P_FREE;
+      } else {
+        elemBC(xpIdx) |= XI_P_COMM;
+        lxip(xpIdx) = ghostIdx[5] + rowInc + j;
       }
     }
   }
@@ -871,105 +690,83 @@ void Domain::SetupBoundaryConditions(Int_t edgeElems)
 void InitMeshDecomp(Int_t numRanks, Int_t myRank,
                     Int_t *col, Int_t *row, Int_t *plane, Int_t *side)
 {
+  /*
+     Français : Décomposer le domaine global en un maillage 3D régulier
+                selon un agencement cubique des sous-domaines.
+     中文：将整体模拟域按立方体方式划分为多个子域（用于多核或多 MPI 进程）。
+  */
+
   Int_t testProcs;
   Int_t dx, dy, dz;
   Int_t myDom;
 
-  // 当前假设处理器以立方体方式划分
-  // Supposition actuelle : découpage des processeurs en forme cubique
+  // ------------------------------------------------------------
+  // Vérifier que le nombre de domaines est un cube parfait
+  // ------------------------------------------------------------
+  // Français : LULESH exige 1, 8, 27, ...
+  // 中文：LULESH 要求进程数量必须是整数立方（1、8、27…）
   testProcs = Int_t(cbrt(Real_t(numRanks)) + 0.5);
 
   if (testProcs * testProcs * testProcs != numRanks) {
     printf("Num processors must be a cube of an integer (1, 8, 27, ...)\n");
-    // 处理器数量必须是整数的立方数
-    // Le nombre de processeurs doit être un cube parfait
-
-#if USE_MPI
-    MPI_Abort(MPI_COMM_WORLD, -1);
-#else
-    exit(-1);
-#endif
+    exit(-1);   // MPI absent → utiliser exit()
   }
 
+  // ------------------------------------------------------------
+  // Vérifier que le type Real_t est supporté
+  // ------------------------------------------------------------
+  // Français : seules float/double sont autorisées
+  // 中文：只允许 float/double 两种浮点类型
   if (sizeof(Real_t) != 4 && sizeof(Real_t) != 8) {
     printf("MPI operations only support float and double right now...\n");
-    // MPI 目前仅支持 float 与 double
-    // MPI ne supporte actuellement que float et double
-
-#if USE_MPI
-    MPI_Abort(MPI_COMM_WORLD, -1);
-#else
     exit(-1);
-#endif
   }
 
+  // ------------------------------------------------------------
+  // Vérifier la taille des buffers pour la communication fantôme
+  // ------------------------------------------------------------
+  // Français : limitation structurelle de LULESH original
+  // 中文：保证用于幽灵单元交换的内部缓冲区大小正确
   if (MAX_FIELDS_PER_MPI_COMM > CACHE_COHERENCE_PAD_REAL) {
     printf("corner element comm buffers too small.  Fix code.\n");
-    // 角点通信缓冲区过小，需要修复代码
-    // Les buffers de communication des coins sont trop petits : corriger le code
-
-#if USE_MPI
-    MPI_Abort(MPI_COMM_WORLD, -1);
-#else
     exit(-1);
-#endif
   }
 
+  // ------------------------------------------------------------
+  // Distribution cubique des sous-domaines
+  // ------------------------------------------------------------
   dx = testProcs;
-  // x 方向处理器数
-  // Nombre de processeurs en direction x
-
   dy = testProcs;
-  // y 方向处理器数
-  // Nombre de processeurs en direction y
-
   dz = testProcs;
-  // z 方向处理器数
-  // Nombre de processeurs en direction z
 
   if (dx * dy * dz != numRanks) {
     printf("error -- must have as many domains as procs\n");
-    // 错误：域数量必须等于处理器数量
-    // Erreur : le nombre de domaines doit égaler le nombre de processeurs
-
-#if USE_MPI
-    MPI_Abort(MPI_COMM_WORLD, -1);
-#else
     exit(-1);
-#endif
   }
 
+  // ------------------------------------------------------------
+  // Répartition des sous-domaines entre les rangs
+  // ------------------------------------------------------------
+  // Français : distribution équilibrée même si numRanks ne divise pas parfaitement
+  // 中文：在理论上允许不均匀划分，但这里确保均匀分布
   Int_t remainder = dx * dy * dz % numRanks;
-  // 多域分配时的余数
-  // Reste lors de la distribution des domaines
 
   if (myRank < remainder) {
     myDom = myRank * (1 + (dx * dy * dz / numRanks));
-    // 前 remainder 个 rank 分配多一个域
-    // Les premiers rangs reçoivent un domaine supplémentaire
-  }
-  else {
-    myDom = remainder * (1 + (dx * dy * dz / numRanks))
-          + (myRank - remainder) * (dx * dy * dz / numRanks);
-    // 其余 rank 分配标准数量的域
-    // Les autres rangs reçoivent leur part standard
+  } else {
+    myDom = remainder * (1 + (dx * dy * dz / numRanks)) +
+            (myRank - remainder) * (dx * dy * dz / numRanks);
   }
 
-  *col = myDom % dx;
-  // 计算该子域的 x 方向索引
-  // Calcule l’indice x du sous-domaine
-
-  *row = (myDom / dx) % dy;
-  // 计算该子域的 y 方向索引
-  // Calcule l’indice y du sous-domaine
-
+  // ------------------------------------------------------------
+  // Convertir myDom en coordonnées 3D dans la grille
+  // ------------------------------------------------------------
+  // Français : conversion index → (col, row, plane)
+  // 中文：将一维编号转映射为三维坐标
+  *col   = myDom % dx;
+  *row   = (myDom / dx) % dy;
   *plane = myDom / (dx * dy);
-  // 计算该子域的 z 方向索引
-  // Calcule l’indice z du sous-domaine
-
-  *side = testProcs;
-  // side：立方划分的边长
-  // side : longueur du côté du découpage cubique
+  *side  = testProcs;  // 每边长度
 
   return;
 }

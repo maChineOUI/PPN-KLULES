@@ -1,8 +1,153 @@
+/*
+  This is a Version 2.0 MPI + OpenMP implementation of LULESH
+
+                 Copyright (c) 2010-2013.
+      Lawrence Livermore National Security, LLC.
+Produced at the Lawrence Livermore National Laboratory.
+                  LLNL-CODE-461231
+                All rights reserved.
+
+This file is part of LULESH, Version 2.0.
+Please also read this link -- http://www.opensource.org/licenses/index.php
+
+//////////////
+DIFFERENCES BETWEEN THIS VERSION (2.x) AND EARLIER VERSIONS:
+* Addition of regions to make work more representative of multi-material codes
+* Default size of each domain is 30^3 (27000 elem) instead of 45^3. This is
+  more representative of our actual working set sizes
+* Single source distribution supports pure serial, pure OpenMP, MPI-only, 
+  and MPI+OpenMP
+* Addition of ability to visualize the mesh using VisIt 
+  https://wci.llnl.gov/codes/visit/download.html
+* Various command line options (see ./lulesh2.0 -h)
+ -q              : quiet mode - suppress stdout
+ -i <iterations> : number of cycles to run
+ -s <size>       : length of cube mesh along side
+ -r <numregions> : Number of distinct regions (def: 11)
+ -b <balance>    : Load balance between regions of a domain (def: 1)
+ -c <cost>       : Extra cost of more expensive regions (def: 1)
+ -f <filepieces> : Number of file parts for viz output (def: np/9)
+ -p              : Print out progress
+ -v              : Output viz file (requires compiling with -DVIZ_MESH
+ -h              : This message
+
+ printf("Usage: %s [opts]\n", execname);
+      printf(" where [opts] is one or more of:\n");
+      printf(" -q              : quiet mode - suppress all stdout\n");
+      printf(" -i <iterations> : number of cycles to run\n");
+      printf(" -s <size>       : length of cube mesh along side\n");
+      printf(" -r <numregions> : Number of distinct regions (def: 11)\n");
+      printf(" -b <balance>    : Load balance between regions of a domain (def: 1)\n");
+      printf(" -c <cost>       : Extra cost of more expensive regions (def: 1)\n");
+      printf(" -f <numfiles>   : Number of files to split viz dump into (def: (np+10)/9)\n");
+      printf(" -p              : Print out progress\n");
+      printf(" -v              : Output viz file (requires compiling with -DVIZ_MESH\n");
+      printf(" -h              : This message\n");
+      printf("\n\n");
+
+*Notable changes in LULESH 2.0
+
+* Split functionality into different files
+lulesh.cc - where most (all?) of the timed functionality lies
+lulesh-comm.cc - MPI functionality
+lulesh-init.cc - Setup code
+lulesh-viz.cc  - Support for visualization option
+lulesh-util.cc - Non-timed functions
+*
+* The concept of "regions" was added, although every region is the same ideal
+*    gas material, and the same sedov blast wave problem is still the only
+*    problem its hardcoded to solve.
+* Regions allow two things important to making this proxy app more representative:
+*   Four of the LULESH routines are now performed on a region-by-region basis,
+*     making the memory access patterns non-unit stride
+*   Artificial load imbalances can be easily introduced that could impact
+*     parallelization strategies.  
+* The load balance flag changes region assignment.  Region number is raised to
+*   the power entered for assignment probability.  Most likely regions changes
+*   with MPI process id.
+* The cost flag raises the cost of ~45% of the regions to evaluate EOS by the
+*   entered multiple. The cost of 5% is 10x the entered multiple.
+* MPI and OpenMP were added, and coalesced into a single version of the source
+*   that can support serial builds, MPI-only, OpenMP-only, and MPI+OpenMP
+* Added support to write plot files using "poor mans parallel I/O" when linked
+*   with the silo library, which in turn can be read by VisIt.
+* Enabled variable timestep calculation by default (courant condition), which
+*   results in an additional reduction.
+* Default domain (mesh) size reduced from 45^3 to 30^3
+* Command line options to allow numerous test cases without needing to recompile
+* Performance optimizations and code cleanup beyond LULESH 1.0
+* Added a "Figure of Merit" calculation (elements solved per microsecond) and
+*   output in support of using LULESH 2.0 for the 2017 CORAL procurement
+*
+* Possible Differences in Final Release (other changes possible)
+*
+* High Level mesh structure to allow data structure transformations
+* Different default parameters
+* Minor code performance changes and cleanup
+
+TODO in future versions
+* Add reader for (truly) unstructured meshes, probably serial only
+* CMake based build system
+
+//////////////
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+
+   * Redistributions of source code must retain the above copyright
+     notice, this list of conditions and the disclaimer below.
+
+   * Redistributions in binary form must reproduce the above copyright
+     notice, this list of conditions and the disclaimer (as noted below)
+     in the documentation and/or other materials provided with the
+     distribution.
+
+   * Neither the name of the LLNS/LLNL nor the names of its contributors
+     may be used to endorse or promote products derived from this software
+     without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED. IN NO EVENT SHALL LAWRENCE LIVERMORE NATIONAL SECURITY, LLC,
+THE U.S. DEPARTMENT OF ENERGY OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
+INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+Additional BSD Notice
+
+1. This notice is required to be provided under our contract with the U.S.
+   Department of Energy (DOE). This work was produced at Lawrence Livermore
+   National Laboratory under Contract No. DE-AC52-07NA27344 with the DOE.
+
+2. Neither the United States Government nor Lawrence Livermore National
+   Security, LLC nor any of their employees, makes any warranty, express
+   or implied, or assumes any liability or responsibility for the accuracy,
+   completeness, or usefulness of any information, apparatus, product, or
+   process disclosed, or represents that its use would not infringe
+   privately-owned rights.
+
+3. Also, reference herein to any specific commercial products, process, or
+   services by trade name, trademark, manufacturer or otherwise does not
+   necessarily constitute or imply its endorsement, recommendation, or
+   favoring by the United States Government or Lawrence Livermore National
+   Security, LLC. The views and opinions of authors expressed herein do not
+   necessarily state or reflect those of the United States Government or
+   Lawrence Livermore National Security, LLC, and shall not be used for
+   advertising or product endorsement purposes.
+
+*/
+
 #include <climits>
 #include <vector>
 #include <math.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
 #include <time.h>
@@ -10,222 +155,176 @@
 #include <iostream>
 #include <unistd.h>
 
-// Inclusion de Kokkos (version 5.0) / 引入 Kokkos 5.0
-// 注意：Kokkos_Vector.hpp 已经不推荐使用，但为了保持与现有结构兼容暂保留
-
-#include <Kokkos_Core.hpp>
-#include <Kokkos_Vector.hpp>
-#include <cstdio>
-
 #if _OPENMP
-#include <omp.h>
+# include <omp.h>
 #endif
 
+#include <Kokkos_Core.hpp>
 #include "lulesh.h"
 
 
-// Allocation de tableaux via malloc（LULESH historique）
-// 使用 malloc 的传统数组分配方式（注意：不用于 Kokkos::View，只用于 MPI 缓冲等）
-template <typename T>
-T* Allocate(size_t size) {
-  return static_cast<T*>(malloc(sizeof(T) * size));
-}
+/* Work Routines
+   Routines de travail
+   工作例程
+*/
 
-template <typename T>
-void Release(T** ptr) {
-  if (*ptr != NULL) {
-    free(*ptr);
-    *ptr = NULL;
-  }
-}
-
-
-// TimeIncrement : mise à jour du pas de temps
-// TimeIncrement：更新时间步（与原 LULESH 行为完全一致）
-static inline void TimeIncrement(Domain& domain)
+static inline
+void TimeIncrement(Domain& domain)
 {
-  // Temps restant avant l'arrêt / 剩余可用时间
-  Real_t targetdt = domain.stoptime() - domain.time();
+   Real_t targetdt = domain.stoptime() - domain.time() ;
 
-  // Mise à jour du pas de temps sauf si pas fixe ou cycle = 0
-  // 若不是固定时间步且不是第一次迭代，则更新时间步
-  if ((domain.dtfixed() <= Real_t(0.0)) && (domain.cycle() != Int_t(0))) {
+   if ((domain.dtfixed() <= Real_t(0.0)) && (domain.cycle() != Int_t(0))) {
+      Real_t ratio ;
+      Real_t olddt = domain.deltatime() ;
 
-    Real_t ratio;
-    Real_t olddt = domain.deltatime();
+      /* This will require a reduction in parallel
+         Ceci nécessite une réduction en parallèle
+         这一部分在并行实现中需要一次全局规约
+      */
+      Real_t gnewdt = Real_t(1.0e+20) ;
+      Real_t newdt ;
+      if (domain.dtcourant() < gnewdt) {
+         gnewdt = domain.dtcourant() / Real_t(2.0) ;
+      }
+      if (domain.dthydro() < gnewdt) {
+         gnewdt = domain.dthydro() * Real_t(2.0) / Real_t(3.0) ;
+      }
 
-    Real_t gnewdt = Real_t(1.0e+20);   // très grand dt / 初始极大 dt
-    Real_t newdt;
-
-    // Limitation par dtcourant / Courant 条件
-    if (domain.dtcourant() < gnewdt) {
-      gnewdt = domain.dtcourant() / Real_t(2.0);
-    }
-
-    // Limitation par dthydro / 体积变化限制
-    if (domain.dthydro() < gnewdt) {
-      gnewdt = domain.dthydro() * Real_t(2.0) / Real_t(3.0);
-    }
-
-    // Réduction MPI si nécessaire / 若 MPI 启用则进行全域最小归约
 #if USE_MPI
-    MPI_Allreduce(&gnewdt, &newdt, 1,
-                  ((sizeof(Real_t) == 4) ? MPI_FLOAT : MPI_DOUBLE),
-                  MPI_MIN, MPI_COMM_WORLD);
+      MPI_Allreduce(&gnewdt, &newdt, 1,
+                    ((sizeof(Real_t) == 4) ? MPI_FLOAT : MPI_DOUBLE),
+                    MPI_MIN, MPI_COMM_WORLD) ;
 #else
-    newdt = gnewdt;
+      newdt = gnewdt;
 #endif
 
-    // Ratio = nouveau / ancien，用于限制 dt 增长
-    ratio = newdt / olddt;
-    if (ratio >= Real_t(1.0)) {
-      if (ratio < domain.deltatimemultlb()) {
-        newdt = olddt;
+      ratio = newdt / olddt ;
+      if (ratio >= Real_t(1.0)) {
+         if (ratio < domain.deltatimemultlb()) {
+            newdt = olddt ;
+         }
+         else if (ratio > domain.deltatimemultub()) {
+            newdt = olddt*domain.deltatimemultub() ;
+         }
       }
-      else if (ratio > domain.deltatimemultub()) {
-        newdt = olddt * domain.deltatimemultub();
+
+      if (newdt > domain.dtmax()) {
+         newdt = domain.dtmax() ;
       }
-    }
+      domain.deltatime() = newdt ;
+   }
 
-    // Ne jamais dépasser dtmax / 禁止超过 dtmax
-    if (newdt > domain.dtmax()) {
-      newdt = domain.dtmax();
-    }
+   /* TRY TO PREVENT VERY SMALL SCALING ON THE NEXT CYCLE
+      Essayer d'éviter un très petit redimensionnement au prochain cycle
+      尽量避免下一步时间步长出现非常小的缩放
+   */
+   if ((targetdt > domain.deltatime()) &&
+       (targetdt < (Real_t(4.0) * domain.deltatime() / Real_t(3.0))) ) {
+      targetdt = Real_t(2.0) * domain.deltatime() / Real_t(3.0) ;
+   }
 
-    domain.deltatime() = newdt;
-  }
+   if (targetdt < domain.deltatime()) {
+      domain.deltatime() = targetdt ;
+   }
 
-  // Ajustement fin de step / 最后一阶段时间步调整
-  if ((targetdt > domain.deltatime()) &&
-      (targetdt < (Real_t(4.0) * domain.deltatime() / Real_t(3.0)))) {
+   domain.time() += domain.deltatime() ;
 
-    targetdt = Real_t(2.0) * domain.deltatime() / Real_t(3.0);
-  }
-
-  if (targetdt < domain.deltatime()) {
-    domain.deltatime() = targetdt;
-  }
-
-  // Mise à jour du temps / 更新时间
-  domain.time() += domain.deltatime();
-
-  // Incrément du cycle / 增加迭代次数
-  ++domain.cycle();
+   ++domain.cycle() ;
 }
 
-// CollectDomainNodesToElemNodes : copie des coordonnées des nœuds d’élément
-// 将单元的 8 个节点的坐标收集到 elemX/elemY/elemZ
-//
-// 注意：本函数在 KOKKOS_INLINE_FUNCTION 中运行
-//      域访问必须使用 domain.x(i) 风格，确保 GPU 兼容性
+/******************************************/
+
 KOKKOS_INLINE_FUNCTION
-void CollectDomainNodesToElemNodes(const Domain& domain,
-                                   const Index_t* elemToNode,
-                                   Real_t elemX[8],
-                                   Real_t elemY[8],
-                                   Real_t elemZ[8])
+static void CollectDomainNodesToElemNodes(const Domain &domain,
+                                          const Index_t* elemToNode,
+                                          Real_t elemX[8],
+                                          Real_t elemY[8],
+                                          Real_t elemZ[8])
 {
-  Index_t nd0i = elemToNode[0];
-  Index_t nd1i = elemToNode[1];
-  Index_t nd2i = elemToNode[2];
-  Index_t nd3i = elemToNode[3];
-  Index_t nd4i = elemToNode[4];
-  Index_t nd5i = elemToNode[5];
-  Index_t nd6i = elemToNode[6];
-  Index_t nd7i = elemToNode[7];
+   Index_t nd0i = elemToNode[0] ;
+   Index_t nd1i = elemToNode[1] ;
+   Index_t nd2i = elemToNode[2] ;
+   Index_t nd3i = elemToNode[3] ;
+   Index_t nd4i = elemToNode[4] ;
+   Index_t nd5i = elemToNode[5] ;
+   Index_t nd6i = elemToNode[6] ;
+   Index_t nd7i = elemToNode[7] ;
 
-  elemX[0] = domain.x(nd0i);
-  elemX[1] = domain.x(nd1i);
-  elemX[2] = domain.x(nd2i);
-  elemX[3] = domain.x(nd3i);
-  elemX[4] = domain.x(nd4i);
-  elemX[5] = domain.x(nd5i);
-  elemX[6] = domain.x(nd6i);
-  elemX[7] = domain.x(nd7i);
+   elemX[0] = domain.x(nd0i);
+   elemX[1] = domain.x(nd1i);
+   elemX[2] = domain.x(nd2i);
+   elemX[3] = domain.x(nd3i);
+   elemX[4] = domain.x(nd4i);
+   elemX[5] = domain.x(nd5i);
+   elemX[6] = domain.x(nd6i);
+   elemX[7] = domain.x(nd7i);
 
-  elemY[0] = domain.y(nd0i);
-  elemY[1] = domain.y(nd1i);
-  elemY[2] = domain.y(nd2i);
-  elemY[3] = domain.y(nd3i);
-  elemY[4] = domain.y(nd4i);
-  elemY[5] = domain.y(nd5i);
-  elemY[6] = domain.y(nd6i);
-  elemY[7] = domain.y(nd7i);
+   elemY[0] = domain.y(nd0i);
+   elemY[1] = domain.y(nd1i);
+   elemY[2] = domain.y(nd2i);
+   elemY[3] = domain.y(nd3i);
+   elemY[4] = domain.y(nd4i);
+   elemY[5] = domain.y(nd5i);
+   elemY[6] = domain.y(nd6i);
+   elemY[7] = domain.y(nd7i);
 
-  elemZ[0] = domain.z(nd0i);
-  elemZ[1] = domain.z(nd1i);
-  elemZ[2] = domain.z(nd2i);
-  elemZ[3] = domain.z(nd3i);
-  elemZ[4] = domain.z(nd4i);
-  elemZ[5] = domain.z(nd5i);
-  elemZ[6] = domain.z(nd6i);
-  elemZ[7] = domain.z(nd7i);
+   elemZ[0] = domain.z(nd0i);
+   elemZ[1] = domain.z(nd1i);
+   elemZ[2] = domain.z(nd2i);
+   elemZ[3] = domain.z(nd3i);
+   elemZ[4] = domain.z(nd4i);
+   elemZ[5] = domain.z(nd5i);
+   elemZ[6] = domain.z(nd6i);
+   elemZ[7] = domain.z(nd7i);
+
 }
 
-// InitStressTermsForElems : initialise les contraintes σxx σyy σzz
-// 初始化单元的应力项 sigxx / sigyy / sigzz
-//
-// Dans LULESH original, sigxx/sigyy/sigzz sont des pointeurs classiques.
-// L'utilisation de Kokkos ici est correcte car l’écriture se fait dans une
-// boucle parallel_for simple et indépendante.
-static inline void InitStressTermsForElems(Domain& domain,
-                                           Real_t* sigxx,
-                                           Real_t* sigyy,
-                                           Real_t* sigzz,
-                                           Index_t numElem)
+/******************************************/
+
+static inline
+void InitStressTermsForElems(Domain &domain,
+                             Real_t *sigxx, Real_t *sigyy, Real_t *sigzz,
+                             Index_t numElem)
 {
-  Kokkos::parallel_for(
-    "InitStressTermsForElems",
-    numElem,
-    KOKKOS_LAMBDA(const Index_t& i) {
-      // σ = -(p + q)
-      // 三个方向的应力都等于 -(压力 + 人工粘性项)
-      sigxx[i] = sigyy[i] = sigzz[i] = -domain.p(i) - domain.q(i);
-    });
+   // pull in the stresses appropriate to the hydro integration
+   // Récupérer les contraintes adaptées à l'intégration hydrodynamique
+   // 提取适合当前流体力学积分步骤的应力值
+
+   using ExecSpace   = Kokkos::DefaultExecutionSpace;
+   using RangePolicy = Kokkos::RangePolicy<ExecSpace>;
+
+   Kokkos::parallel_for(
+      "InitStressTermsForElems",
+      RangePolicy(0, numElem),
+      KOKKOS_LAMBDA(const Index_t i) {
+         sigxx[i] = sigyy[i] = sigzz[i] = - domain.p(i) - domain.q(i);
+      });
 }
 
-// CalcElemShapeFunctionDerivatives
-// 计算形函数导数与单元体积（8 点六面体）
-// 
-// 注意：此函数是“数学几何计算”，不包含 Kokkos 并行语义，因此保持 CPU-only。
-// 若未来需要在 GPU 上调用，可包装为 KOKKOS_FUNCTION。
-static inline void CalcElemShapeFunctionDerivatives(Real_t const x[],
-                                                    Real_t const y[],
-                                                    Real_t const z[],
-                                                    Real_t b[][8],
-                                                    Real_t* const volume)
+/******************************************/
+
+KOKKOS_INLINE_FUNCTION
+static void CalcElemShapeFunctionDerivatives( Real_t const x[],
+                                              Real_t const y[],
+                                              Real_t const z[],
+                                              Real_t b[][8],
+                                              Real_t* const volume )
 {
-  // Coordonnées des 8 nœuds de l’élément
-  // 8 个节点坐标（保持原始展开形式）
-  const Real_t x0 = x[0];
-  const Real_t x1 = x[1];
-  const Real_t x2 = x[2];
-  const Real_t x3 = x[3];
-  const Real_t x4 = x[4];
-  const Real_t x5 = x[5];
-  const Real_t x6 = x[6];
-  const Real_t x7 = x[7];
+  const Real_t x0 = x[0] ;   const Real_t x1 = x[1] ;
+  const Real_t x2 = x[2] ;   const Real_t x3 = x[3] ;
+  const Real_t x4 = x[4] ;   const Real_t x5 = x[5] ;
+  const Real_t x6 = x[6] ;   const Real_t x7 = x[7] ;
 
-  const Real_t y0 = y[0];
-  const Real_t y1 = y[1];
-  const Real_t y2 = y[2];
-  const Real_t y3 = y[3];
-  const Real_t y4 = y[4];
-  const Real_t y5 = y[5];
-  const Real_t y6 = y[6];
-  const Real_t y7 = y[7];
+  const Real_t y0 = y[0] ;   const Real_t y1 = y[1] ;
+  const Real_t y2 = y[2] ;   const Real_t y3 = y[3] ;
+  const Real_t y4 = y[4] ;   const Real_t y5 = y[5] ;
+  const Real_t y6 = y[6] ;   const Real_t y7 = y[7] ;
 
-  const Real_t z0 = z[0];
-  const Real_t z1 = z[1];
-  const Real_t z2 = z[2];
-  const Real_t z3 = z[3];
-  const Real_t z4 = z[4];
-  const Real_t z5 = z[5];
-  const Real_t z6 = z[6];
-  const Real_t z7 = z[7];
+  const Real_t z0 = z[0] ;   const Real_t z1 = z[1] ;
+  const Real_t z2 = z[2] ;   const Real_t z3 = z[3] ;
+  const Real_t z4 = z[4] ;   const Real_t z5 = z[5] ;
+  const Real_t z6 = z[6] ;   const Real_t z7 = z[7] ;
 
-  // Variables intermédiaires
-  // 中间导数项
   Real_t fjxxi, fjxet, fjxze;
   Real_t fjyxi, fjyet, fjyze;
   Real_t fjzxi, fjzet, fjzze;
@@ -233,1280 +332,1005 @@ static inline void CalcElemShapeFunctionDerivatives(Real_t const x[],
   Real_t cjyxi, cjyet, cjyze;
   Real_t cjzxi, cjzet, cjzze;
 
-  // Formules géométriques du Jacobien
-  // Jacobian 几何公式（六面体标准推导）
-  fjxxi = Real_t(.125) * ((x6 - x0) + (x5 - x3) - (x7 - x1) - (x4 - x2));
-  fjxet = Real_t(.125) * ((x6 - x0) - (x5 - x3) + (x7 - x1) - (x4 - x2));
-  fjxze = Real_t(.125) * ((x6 - x0) + (x5 - x3) + (x7 - x1) + (x4 - x2));
+  fjxxi = Real_t(.125) * ( (x6-x0) + (x5-x3) - (x7-x1) - (x4-x2) );
+  fjxet = Real_t(.125) * ( (x6-x0) - (x5-x3) + (x7-x1) - (x4-x2) );
+  fjxze = Real_t(.125) * ( (x6-x0) + (x5-x3) + (x7-x1) + (x4-x2) );
 
-  fjyxi = Real_t(.125) * ((y6 - y0) + (y5 - y3) - (y7 - y1) - (y4 - y2));
-  fjyet = Real_t(.125) * ((y6 - y0) - (y5 - y3) + (y7 - y1) - (y4 - y2));
-  fjyze = Real_t(.125) * ((y6 - y0) + (y5 - y3) + (y7 - y1) + (y4 - y2));
+  fjyxi = Real_t(.125) * ( (y6-y0) + (y5-y3) - (y7-y1) - (y4-y2) );
+  fjyet = Real_t(.125) * ( (y6-y0) - (y5-y3) + (y7-y1) - (y4-y2) );
+  fjyze = Real_t(.125) * ( (y6-y0) + (y5-y3) + (y7-y1) + (y4-y2) );
 
-  fjzxi = Real_t(.125) * ((z6 - z0) + (z5 - z3) - (z7 - z1) - (z4 - z2));
-  fjzet = Real_t(.125) * ((z6 - z0) - (z5 - z3) + (z7 - z1) - (z4 - z2));
-  fjzze = Real_t(.125) * ((z6 - z0) + (z5 - z3) + (z7 - z1) + (z4 - z2));
+  fjzxi = Real_t(.125) * ( (z6-z0) + (z5-z3) - (z7-z1) - (z4-z2) );
+  fjzet = Real_t(.125) * ( (z6-z0) - (z5-z3) + (z7-z1) - (z4-z2) );
+  fjzze = Real_t(.125) * ( (z6-z0) + (z5-z3) + (z7-z1) + (z4-z2) );
 
-  // Cofacteurs du Jacobien
-  // Jacobian 伴随矩阵项
-  cjxxi = (fjyet * fjzze) - (fjzet * fjyze);
-  cjxet = -(fjyxi * fjzze) + (fjzxi * fjyze);
-  cjxze = (fjyxi * fjzet) - (fjzxi * fjyet);
+  /* compute cofactors
+     Calculer les cofacteurs
+     计算体积雅可比矩阵的余子式（cofactor）
+  */
+  cjxxi =    (fjyet * fjzze) - (fjzet * fjyze);
+  cjxet =  - (fjyxi * fjzze) + (fjzxi * fjyze);
+  cjxze =    (fjyxi * fjzet) - (fjzxi * fjyet);
 
-  cjyxi = -(fjxet * fjzze) + (fjzet * fjxze);
-  cjyet = (fjxxi * fjzze) - (fjzxi * fjxze);
-  cjyze = -(fjxxi * fjzet) + (fjzxi * fjxet);
+  cjyxi =  - (fjxet * fjzze) + (fjzet * fjxze);
+  cjyet =    (fjxxi * fjzze) - (fjzxi * fjxze);
+  cjyze =  - (fjxxi * fjzet) + (fjzxi * fjxet);
 
-  cjzxi = (fjxet * fjyze) - (fjyet * fjxze);
-  cjzet = -(fjxxi * fjyze) + (fjyxi * fjxze);
-  cjzze = (fjxxi * fjyet) - (fjyxi * fjxet);
+  cjzxi =    (fjxet * fjyze) - (fjyet * fjxze);
+  cjzet =  - (fjxxi * fjyze) + (fjyxi * fjxze);
+  cjzze =    (fjxxi * fjyet) - (fjyxi * fjxet);
 
-  // Construction des dérivées des fonctions de forme
-  // 形函数导数的构造（b[k][i]）
-  b[0][0] = -cjxxi - cjxet - cjxze;
-  b[0][1] =  cjxxi - cjxet - cjxze;
-  b[0][2] =  cjxxi + cjxet - cjxze;
-  b[0][3] = -cjxxi + cjxet - cjxze;
+  /* calculate partials :
+     this need only be done for l = 0,1,2,3   since , by symmetry ,
+     (6,7,4,5) = - (0,1,2,3) .
+     Calculer les dérivées partielles : il suffit de le faire pour l = 0,1,2,3
+     car, par symétrie, (6,7,4,5) = - (0,1,2,3).
+     计算形函数导数：只需对结点 0,1,2,3 计算，因为由对称性可得
+     结点 6,7,4,5 的导数是 0,1,2,3 的相反数。
+  */
+  b[0][0] =   -  cjxxi  -  cjxet  -  cjxze;
+  b[0][1] =      cjxxi  -  cjxet  -  cjxze;
+  b[0][2] =      cjxxi  +  cjxet  -  cjxze;
+  b[0][3] =   -  cjxxi  +  cjxet  -  cjxze;
   b[0][4] = -b[0][2];
   b[0][5] = -b[0][3];
   b[0][6] = -b[0][0];
   b[0][7] = -b[0][1];
 
-  b[1][0] = -cjyxi - cjyet - cjyze;
-  b[1][1] =  cjyxi - cjyet - cjyze;
-  b[1][2] =  cjyxi + cjyet - cjyze;
-  b[1][3] = -cjyxi + cjyet - cjyze;
+  b[1][0] =   -  cjyxi  -  cjyet  -  cjyze;
+  b[1][1] =      cjyxi  -  cjyet  -  cjyze;
+  b[1][2] =      cjyxi  +  cjyet  -  cjyze;
+  b[1][3] =   -  cjyxi  +  cjyet  -  cjyze;
   b[1][4] = -b[1][2];
   b[1][5] = -b[1][3];
   b[1][6] = -b[1][0];
   b[1][7] = -b[1][1];
 
-  b[2][0] = -cjzxi - cjzet - cjzze;
-  b[2][1] =  cjzxi - cjzet - cjzze;
-  b[2][2] =  cjzxi + cjzet - cjzze;
-  b[2][3] = -cjzxi + cjzet - cjzze;
+  b[2][0] =   -  cjzxi  -  cjzet  -  cjzze;
+  b[2][1] =      cjzxi  -  cjzet  -  cjzze;
+  b[2][2] =      cjzxi  +  cjzet  -  cjzze;
+  b[2][3] =   -  cjzxi  +  cjzet  -  cjzze;
   b[2][4] = -b[2][2];
   b[2][5] = -b[2][3];
   b[2][6] = -b[2][0];
   b[2][7] = -b[2][1];
 
-  // Volume = 8 * somme des produits de termes du Jacobien
-  // 六面体单元体积公式（LULESH 传统推导）
-  *volume = Real_t(8.0) * (fjxet * cjxet +
-                           fjyet * cjyet +
-                           fjzet * cjzet);
+  /* calculate jacobian determinant (volume)
+     Calculer le déterminant du jacobien (volume)
+     计算雅可比行列式，对应单元体积
+  */
+  *volume = Real_t(8.) * ( fjxet * cjxet + fjyet * cjyet + fjzet * cjzet);
 }
 
-static inline void SumElemFaceNormal(
-    Real_t* normalX0, Real_t* normalY0, Real_t* normalZ0,
-    Real_t* normalX1, Real_t* normalY1, Real_t* normalZ1,
-    Real_t* normalX2, Real_t* normalY2, Real_t* normalZ2,
-    Real_t* normalX3, Real_t* normalY3, Real_t* normalZ3,
-    const Real_t x0, const Real_t y0, const Real_t z0,
-    const Real_t x1, const Real_t y1, const Real_t z1,
-    const Real_t x2, const Real_t y2, const Real_t z2,
-    const Real_t x3, const Real_t y3, const Real_t z3)
-{
-  // bisectX0 : vecteur bissecteur de la face dans la direction X
-  // 面的对角线组合得到的“角平分向量”（几何构造的一部分）
-  Real_t bisectX0 = Real_t(0.5) * (x3 + x2 - x1 - x0);
-
-  // bisectY0 : idem pour la direction Y
-  // 同理，面在 Y 方向上的角平分线量
-  Real_t bisectY0 = Real_t(0.5) * (y3 + y2 - y1 - y0);
-
-  // bisectZ0 : idem pour Z
-  // 同理，面在 Z 方向上的角平分线量
-  Real_t bisectZ0 = Real_t(0.5) * (z3 + z2 - z1 - z0);
-
-  // bisectX1 : deuxième vecteur bissecteur
-  // 第二个角平分向量，用于构造面法向
-  Real_t bisectX1 = Real_t(0.5) * (x2 + x1 - x3 - x0);
-
-  // 同理
-  Real_t bisectY1 = Real_t(0.5) * (y2 + y1 - y3 - y0);
-  Real_t bisectZ1 = Real_t(0.5) * (z2 + z1 - z3 - z0);
-
-  // areaX : composante X de la normale de la face
-  // 面法向量 X 分量 = (bisectY0 × bisectZ1 - bisectZ0 × bisectY1) / 4
-  Real_t areaX = Real_t(0.25) * (bisectY0 * bisectZ1 - bisectZ0 * bisectY1);
-
-  // areaY : composante Y de la normale
-  // 面法向量 Y 分量
-  Real_t areaY = Real_t(0.25) * (bisectZ0 * bisectX1 - bisectX0 * bisectZ1);
-
-  // areaZ : composante Z de la normale
-  // 面法向量 Z 分量
-  Real_t areaZ = Real_t(0.25) * (bisectX0 * bisectY1 - bisectY0 * bisectX1);
-
-  // Les quatre nœuds de la face reçoivent la même contribution normale
-  // 面的 4 个节点都累加这同一个法向量贡献
-
-  *normalX0 += areaX;
-  *normalX1 += areaX;
-  *normalX2 += areaX;
-  *normalX3 += areaX;
-
-  *normalY0 += areaY;
-  *normalY1 += areaY;
-  *normalY2 += areaY;
-  *normalY3 += areaY;
-
-  *normalZ0 += areaZ;
-  *normalZ1 += areaZ;
-  *normalZ2 += areaZ;
-  *normalZ3 += areaZ;
-}
+/******************************************/
 
 KOKKOS_INLINE_FUNCTION
-void CalcElemNodeNormals(Real_t pfx[8], Real_t pfy[8], Real_t pfz[8],
-                         const Real_t x[8], const Real_t y[8], const Real_t z[8])
+static void SumElemFaceNormal(Real_t *normalX0, Real_t *normalY0, Real_t *normalZ0,
+                              Real_t *normalX1, Real_t *normalY1, Real_t *normalZ1,
+                              Real_t *normalX2, Real_t *normalY2, Real_t *normalZ2,
+                              Real_t *normalX3, Real_t *normalY3, Real_t *normalZ3,
+                              const Real_t x0, const Real_t y0, const Real_t z0,
+                              const Real_t x1, const Real_t y1, const Real_t z1,
+                              const Real_t x2, const Real_t y2, const Real_t z2,
+                              const Real_t x3, const Real_t y3, const Real_t z3)
 {
-  // Initialisation des normales nodales à zéro
-  // 将八个节点的法向量初值全部设为 0
-  for (Index_t i = 0; i < 8; ++i) {
-    pfx[i] = Real_t(0.0);
-    pfy[i] = Real_t(0.0);
-    pfz[i] = Real_t(0.0);
-  }
+   Real_t bisectX0 = Real_t(0.5) * (x3 + x2 - x1 - x0);
+   Real_t bisectY0 = Real_t(0.5) * (y3 + y2 - y1 - y0);
+   Real_t bisectZ0 = Real_t(0.5) * (z3 + z2 - z1 - z0);
+   Real_t bisectX1 = Real_t(0.5) * (x2 + x1 - x3 - x0);
+   Real_t bisectY1 = Real_t(0.5) * (y2 + y1 - y3 - y0);
+   Real_t bisectZ1 = Real_t(0.5) * (z2 + z1 - z3 - z0);
+   Real_t areaX = Real_t(0.25) * (bisectY0 * bisectZ1 - bisectZ0 * bisectY1);
+   Real_t areaY = Real_t(0.25) * (bisectZ0 * bisectX1 - bisectX0 * bisectZ1);
+   Real_t areaZ = Real_t(0.25) * (bisectX0 * bisectY1 - bisectY0 * bisectX1);
 
-  // Face 0 : nœuds 0-1-2-3
-  // 第 0 个面：节点 0-1-2-3
-  SumElemFaceNormal(&pfx[0], &pfy[0], &pfz[0],
-                    &pfx[1], &pfy[1], &pfz[1],
-                    &pfx[2], &pfy[2], &pfz[2],
-                    &pfx[3], &pfy[3], &pfz[3],
-                    x[0], y[0], z[0],
-                    x[1], y[1], z[1],
-                    x[2], y[2], z[2],
-                    x[3], y[3], z[3]);
+   *normalX0 += areaX;
+   *normalX1 += areaX;
+   *normalX2 += areaX;
+   *normalX3 += areaX;
 
-  // Face 1 : nœuds 0-4-5-1
-  // 第 1 个面：节点 0-4-5-1
-  SumElemFaceNormal(&pfx[0], &pfy[0], &pfz[0],
-                    &pfx[4], &pfy[4], &pfz[4],
-                    &pfx[5], &pfy[5], &pfz[5],
-                    &pfx[1], &pfy[1], &pfz[1],
-                    x[0], y[0], z[0],
-                    x[4], y[4], z[4],
-                    x[5], y[5], z[5],
-                    x[1], y[1], z[1]);
+   *normalY0 += areaY;
+   *normalY1 += areaY;
+   *normalY2 += areaY;
+   *normalY3 += areaY;
 
-  // Face 2 : nœuds 1-5-6-2
-  // 第 2 个面：节点 1-5-6-2
-  SumElemFaceNormal(&pfx[1], &pfy[1], &pfz[1],
-                    &pfx[5], &pfy[5], &pfz[5],
-                    &pfx[6], &pfy[6], &pfz[6],
-                    &pfx[2], &pfy[2], &pfz[2],
-                    x[1], y[1], z[1],
-                    x[5], y[5], z[5],
-                    x[6], y[6], z[6],
-                    x[2], y[2], z[2]);
-
-  // Face 3 : nœuds 2-6-7-3
-  // 第 3 个面：节点 2-6-7-3
-  SumElemFaceNormal(&pfx[2], &pfy[2], &pfz[2],
-                    &pfx[6], &pfy[6], &pfz[6],
-                    &pfx[7], &pfy[7], &pfz[7],
-                    &pfx[3], &pfy[3], &pfz[3],
-                    x[2], y[2], z[2],
-                    x[6], y[6], z[6],
-                    x[7], y[7], z[7],
-                    x[3], y[3], z[3]);
-
-  // Face 4 : nœuds 3-7-4-0
-  // 第 4 个面：节点 3-7-4-0
-  SumElemFaceNormal(&pfx[3], &pfy[3], &pfz[3],
-                    &pfx[7], &pfy[7], &pfz[7],
-                    &pfx[4], &pfy[4], &pfz[4],
-                    &pfx[0], &pfy[0], &pfz[0],
-                    x[3], y[3], z[3],
-                    x[7], y[7], z[7],
-                    x[4], y[4], z[4],
-                    x[0], y[0], z[0]);
-
-  // Face 5 : nœuds 4-7-6-5
-  // 第 5 个面：节点 4-7-6-5
-  SumElemFaceNormal(&pfx[4], &pfy[4], &pfz[4],
-                    &pfx[7], &pfy[7], &pfz[7],
-                    &pfx[6], &pfy[6], &pfz[6],
-                    &pfx[5], &pfy[5], &pfz[5],
-                    x[4], y[4], z[4],
-                    x[7], y[7], z[7],
-                    x[6], y[6], z[6],
-                    x[5], y[5], z[5]);
+   *normalZ0 += areaZ;
+   *normalZ1 += areaZ;
+   *normalZ2 += areaZ;
+   *normalZ3 += areaZ;
 }
 
-// Fonction : Somme des contraintes élémentaires vers les forces nodales
-// 功能：将单元应力贡献累加到节点力向量
+/******************************************/
+
 KOKKOS_INLINE_FUNCTION
-void SumElemStressesToNodeForces(const Real_t B[][8],      // dérivées de fonctions de forme / 形函数导数
-                                 const Real_t stress_xx,   // composante σxx / σxx 应力分量
-                                 const Real_t stress_yy,   // composante σyy / σyy
-                                 const Real_t stress_zz,   // composante σzz / σzz
-                                 Real_t fx[],              // forces nodales x / x 方向节点力
-                                 Real_t fy[],              // forces nodales y / y 方向节点力
-                                 Real_t fz[])              // forces nodales z / z 方向节点力
+static void CalcElemNodeNormals(Real_t pfx[8],
+                                Real_t pfy[8],
+                                Real_t pfz[8],
+                                const Real_t x[8],
+                                const Real_t y[8],
+                                const Real_t z[8])
 {
-  for (Index_t i = 0; i < 8; i++) {      // boucle sur 8 nœuds / 遍历全部 8 个节点
-    fx[i] = -(stress_xx * B[0][i]);     // fx = -σxx * dN/dx
-    fy[i] = -(stress_yy * B[1][i]);     // fy = -σyy * dN/dy
-    fz[i] = -(stress_zz * B[2][i]);     // fz = -σzz * dN/dz
-  }
+   for (Index_t i = 0 ; i < 8 ; ++i) {
+      pfx[i] = Real_t(0.0);
+      pfy[i] = Real_t(0.0);
+      pfz[i] = Real_t(0.0);
+   }
+   /* evaluate face one: nodes 0, 1, 2, 3
+      Évaluer la première face : nœuds 0, 1, 2, 3
+      计算第 1 个面：结点 0, 1, 2, 3
+   */
+   SumElemFaceNormal(&pfx[0], &pfy[0], &pfz[0],
+                  &pfx[1], &pfy[1], &pfz[1],
+                  &pfx[2], &pfy[2], &pfz[2],
+                  &pfx[3], &pfy[3], &pfz[3],
+                  x[0], y[0], z[0], x[1], y[1], z[1],
+                  x[2], y[2], z[2], x[3], y[3], z[3]);
+   /* evaluate face two: nodes 0, 4, 5, 1
+      Évaluer la deuxième face : nœuds 0, 4, 5, 1
+      计算第 2 个面：结点 0, 4, 5, 1
+   */
+   SumElemFaceNormal(&pfx[0], &pfy[0], &pfz[0],
+                  &pfx[4], &pfy[4], &pfz[4],
+                  &pfx[5], &pfy[5], &pfz[5],
+                  &pfx[1], &pfy[1], &pfz[1],
+                  x[0], y[0], z[0], x[4], y[4], z[4],
+                  x[5], y[5], z[5], x[1], y[1], z[1]);
+   /* evaluate face three: nodes 1, 5, 6, 2
+      Évaluer la troisième face : nœuds 1, 5, 6, 2
+      计算第 3 个面：结点 1, 5, 6, 2
+   */
+   SumElemFaceNormal(&pfx[1], &pfy[1], &pfz[1],
+                  &pfx[5], &pfy[5], &pfz[5],
+                  &pfx[6], &pfy[6], &pfz[6],
+                  &pfx[2], &pfy[2], &pfz[2],
+                  x[1], y[1], z[1], x[5], y[5], z[5],
+                  x[6], y[6], z[6], x[2], y[2], z[2]);
+   /* evaluate face four: nodes 2, 6, 7, 3
+      Évaluer la quatrième face : nœuds 2, 6, 7, 3
+      计算第 4 个面：结点 2, 6, 7, 3
+   */
+   SumElemFaceNormal(&pfx[2], &pfy[2], &pfz[2],
+                  &pfx[6], &pfy[6], &pfz[6],
+                  &pfx[7], &pfy[7], &pfz[7],
+                  &pfx[3], &pfy[3], &pfz[3],
+                  x[2], y[2], z[2], x[6], y[6], z[6],
+                  x[7], y[7], z[7], x[3], y[3], z[3]);
+   /* evaluate face five: nodes 3, 7, 4, 0
+      Évaluer la cinquième face : nœuds 3, 7, 4, 0
+      计算第 5 个面：结点 3, 7, 4, 0
+   */
+   SumElemFaceNormal(&pfx[3], &pfy[3], &pfz[3],
+                  &pfx[7], &pfy[7], &pfz[7],
+                  &pfx[4], &pfy[4], &pfz[4],
+                  &pfx[0], &pfy[0], &pfz[0],
+                  x[3], y[3], z[3], x[7], y[7], z[7],
+                  x[4], y[4], z[4], x[0], y[0], z[0]);
+   /* evaluate face six: nodes 4, 7, 6, 5
+      Évaluer la sixième face : nœuds 4, 7, 6, 5
+      计算第 6 个面：结点 4, 7, 6, 5
+   */
+   SumElemFaceNormal(&pfx[4], &pfy[4], &pfz[4],
+                  &pfx[7], &pfy[7], &pfz[7],
+                  &pfx[6], &pfy[6], &pfz[6],
+                  &pfx[5], &pfy[5], &pfz[5],
+                  x[4], y[4], z[4], x[7], y[7], z[7],
+                  x[6], y[6], z[6], x[5], y[5], z[5]);
 }
 
+/******************************************/
 
-// Fonction : intégration des contraintes pour chaque élément
-// 功能：对所有单元整合应力，将它们转换为节点力
+KOKKOS_INLINE_FUNCTION
+static void SumElemStressesToNodeForces( const Real_t B[][8],
+                                         const Real_t stress_xx,
+                                         const Real_t stress_yy,
+                                         const Real_t stress_zz,
+                                         Real_t fx[], Real_t fy[], Real_t fz[] )
+{
+   for(Index_t i = 0; i < 8; i++) {
+      fx[i] = -( stress_xx * B[0][i] );
+      fy[i] = -( stress_yy * B[1][i] );
+      fz[i] = -( stress_zz * B[2][i] );
+   }
+}
+
+/******************************************/
+
 static inline
-void IntegrateStressForElems(Domain &domain,     // domaine FEM / 有限元区域对象
-                             Real_t *sigxx,      // σxx de chaque élément / 每个单元的 σxx
-                             Real_t *sigyy,      // σyy de chaque élément
-                             Real_t *sigzz,      // σzz de chaque élément
-                             Real_t *determ,     // déterminant jacobien / 雅可比行列式
-                             Index_t numElem,    // nombre d'éléments / 单元数量
-                             Index_t numNode)    // nombre de nœuds / 节点数量
+void IntegrateStressForElems(const Domain &domain,
+                              Real_t *sigxx, Real_t *sigyy, Real_t *sigzz,
+                              Real_t *determ, Index_t numElem, Index_t /*tumNode*/)
 {
-#if _OPENMP
-  Index_t numthreads = omp_get_max_threads();   // nombre de threads OMP / OMP 线程数
-#else
-  Index_t numthreads = 1;                       // exécution séquentielle / 单线程执行
-#endif
+   using ExecSpace   = Kokkos::DefaultExecutionSpace;
+   using RangePolicy = Kokkos::RangePolicy<ExecSpace>;
 
-  Index_t numElem8 = numElem * 8;               // 8 nœuds par élément / 每单元 8 节点
+   // loop over all elements (now in Kokkos)
+   // Boucle sur tous les éléments (désormais avec Kokkos)
+   // 对所有单元进行循环（使用 Kokkos 并行执行）
 
-  Real_t *fx_elem;
-  Real_t *fy_elem;
-  Real_t *fz_elem;
+   Kokkos::parallel_for(
+      "IntegrateStressForElems",
+      RangePolicy(0, numElem),
+      KOKKOS_LAMBDA(const Index_t k)
+   {
+      const Index_t* const elemToNode = domain.nodelist(k);
+      Real_t B[3][8]; // shape function derivatives / dérivées des fonctions de forme / 形函数导数
+      Real_t x_local[8];
+      Real_t y_local[8];
+      Real_t z_local[8];
 
-  // Vues Kokkos locales (taille 8)
-  // Kokkos 局部 View（长度为 8，用于单线程情况）
-  typedef Kokkos::View<Real_t *> view_real_t;
-  view_real_t fx_local("A", 8);
-  view_real_t fy_local("B", 8);
-  view_real_t fz_local("C", 8);
+      // get nodal coordinates from global arrays and copy into local arrays.
+      // Récupérer les coordonnées nodales globales et les copier dans des tableaux locaux.
+      // 从全局坐标数组中取出结点坐标，复制到局部数组中。
+      CollectDomainNodesToElemNodes(domain, elemToNode, x_local, y_local, z_local);
 
-  // Allocation CPU quand OpenMP utilise plusieurs threads
-  // 若有多线程执行，则分配独立数组用于保存每单元的力结果
-  if (numthreads > 1) {
-    fx_elem = Allocate<Real_t>(numElem8);
-    fy_elem = Allocate<Real_t>(numElem8);
-    fz_elem = Allocate<Real_t>(numElem8);
-  }
-
-  // Boucle parallèle Kokkos sur les éléments
-  // 使用 Kokkos 对所有单元进行并行处理
-  Kokkos::parallel_for("IntegrateStressForElems A", numElem,
-    KOKKOS_LAMBDA(const int k) {
-
-      const Index_t *const elemToNode = domain.nodelist(k);  // connectivité élément->nœuds / 单元到节点映射
-
-      Real_t B[3][8];          // dérivées des fonctions de forme / 形函数导数
-      Real_t x_local[8];       // coordonnées x des nœuds locaux / 单元局部 x 坐标
-      Real_t y_local[8];       // coordonnées y
-      Real_t z_local[8];       // coordonnées z
-
-      // Récupération des coordonnées nodales de l’élément
-      // 将节点坐标拷贝到局部数组
-      CollectDomainNodesToElemNodes(domain, elemToNode,
-                                    x_local, y_local, z_local);
-
-      // Calcul des dérivées des fonctions de forme + volume jacobien
-      // 计算形函数导数与体积（雅可比 determinant）
+      // Volume calculation involves extra work for numerical consistency
+      // Le calcul du volume demande un travail supplémentaire pour garantir la cohérence numérique.
+      // 体积计算需要额外工作以保证数值一致性。
       CalcElemShapeFunctionDerivatives(x_local, y_local, z_local,
                                        B, &determ[k]);
 
-      // Calcul des normales nodales de l’élément
-      // 计算八个节点的法向量
+      // compute nodal normals based on shape derivatives
+      // Calculer les normales nodales à partir des dérivées de forme.
+      // 基于形函数导数计算结点法向量。
       CalcElemNodeNormals(B[0], B[1], B[2],
                           x_local, y_local, z_local);
 
-      // Cas multithread : écrire dans un grand tableau temporaire
-      // 多线程情况：写入 fx_elem, fy_elem, fz_elem
-      if (numthreads > 1) {
+      Real_t fx_local[8];
+      Real_t fy_local[8];
+      Real_t fz_local[8];
 
-        SumElemStressesToNodeForces(B,
-                                     sigxx[k], sigyy[k], sigzz[k],
-                                     &fx_elem[k * 8],
-                                     &fy_elem[k * 8],
-                                     &fz_elem[k * 8]);
-      }
-      // Cas monothread : accumulation directe dans domain.fx/fy/fz
-      // 单线程情况：直接累加到 Domain 中的节点力向量
-      else {
+      // sum element stresses into nodal force contributions
+      // Convertir les contraintes de l’élément en contributions de forces nodales.
+      // 将单元应力转换为对各结点的力贡献。
+      SumElemStressesToNodeForces(B, sigxx[k], sigyy[k], sigzz[k],
+                                  fx_local, fy_local, fz_local);
 
-        SumElemStressesToNodeForces(B,
-                                    sigxx[k], sigyy[k], sigzz[k],
-                                    &fx_local[8],
-                                    &fy_local[8],
-                                    &fz_local[8]);
+      // copy nodal force contributions to global force array with atomics
+      // Copier les contributions nodales vers les forces globales en utilisant des opérations atomiques.
+      // 使用原子加，将结点力贡献累加到全局力数组中。
+      for (Index_t lnode = 0; lnode < 8; ++lnode) {
+        Index_t gnode = elemToNode[lnode];
+      	Kokkos::atomic_add(domain.fx_ptr() + gnode, fx_local[lnode]);
+	Kokkos::atomic_add(domain.fy_ptr() + gnode, fy_local[lnode]);
+	Kokkos::atomic_add(domain.fz_ptr() + gnode, fz_local[lnode]);
 
-        for (Index_t lnode = 0; lnode < 8; ++lnode) {
-          Index_t gnode = elemToNode[lnode];  // ID global du nœud / 全局节点编号
-          domain.fx(gnode) += fx_local[lnode]; // accumulation de forces / 力累加
-          domain.fy(gnode) += fy_local[lnode];
-          domain.fz(gnode) += fz_local[lnode];
-        }
-      }
-  });
-
-// Partie OpenMP/Kokkos : réduction finale des forces nodales
-// 功能：在多线程模式下，将所有单元的力汇总到最终节点力向量
-if (numthreads > 1) {
-
-  // Boucle parallèle Kokkos sur tous les nœuds globaux
-  // 用 Kokkos 并行遍历所有全局节点
-  Kokkos::parallel_for("IntegrateStressForElems B", numNode,
-    KOKKOS_LAMBDA(const int gnode) {
-
-      Index_t count = domain.nodeElemCount(gnode);  
-      // nombre d’occurrences de ce nœud dans les éléments / 此节点参与多少个单元
-
-      Index_t *cornerList = domain.nodeElemCornerList(gnode);  
-      // liste des coins d’élément associés / 关联该节点的单元角标列表
-
-      Real_t fx_tmp = Real_t(0.0);  // accumulation locale fx / 本地 fx 累积
-      Real_t fy_tmp = Real_t(0.0);  // accumulation locale fy / 本地 fy 累积
-      Real_t fz_tmp = Real_t(0.0);  // accumulation locale fz / 本地 fz 累积
-
-      // Boucle sur tous les coins d’éléments où le nœud apparaît
-      // 遍历该节点对应的所有单元/角标
-      for (Index_t i = 0; i < count; ++i) {
-
-        Index_t ielem = cornerList[i];  
-        // index global d’un coin d’élément / 单元角全局编号
-
-        fx_tmp += fx_elem[ielem];  // somme des forces / 累加力
-        fy_tmp += fy_elem[ielem];
-        fz_tmp += fz_elem[ielem];
-      }
-
-      // Écriture du résultat dans le domaine
-      // 将最终力写回 Domain
-      domain.fx(gnode) = fx_tmp;
-      domain.fy(gnode) = fy_tmp;
-      domain.fz(gnode) = fz_tmp;
-  });
-
-  // Libération de la mémoire temporaire
-  // 释放临时分配的数组
-  Release(&fz_elem);
-  Release(&fy_elem);
-  Release(&fx_elem);
-}
-} 
-
-// Fonction : dérivée volumique d’un élément hexaédrique
-// 功能：计算六面体单元体积关于 x,y,z 的偏导数（用于 KDG/Hydro 算法）
-static inline
-void VoluDer(const Real_t x0, const Real_t x1, const Real_t x2,
-             const Real_t x3, const Real_t x4, const Real_t x5,
-             const Real_t y0, const Real_t y1, const Real_t y2,
-             const Real_t y3, const Real_t y4, const Real_t y5,
-             const Real_t z0, const Real_t z1, const Real_t z2,
-             const Real_t z3, const Real_t z4, const Real_t z5,
-             Real_t *dvdx, Real_t *dvdy, Real_t *dvdz)
-{
-  const Real_t twelfth = Real_t(1.0) / Real_t(12.0);  
-  // 1/12 用于几何对称化 / 体积公式需要的 1/12 系数
-
-  // Formules géométriques directes pour la dérivée du volume
-  // 几何公式：体积关于 x 的偏导数 dvdx
-  *dvdx = (y1 + y2) * (z0 + z1)
-        - (y0 + y1) * (z1 + z2)
-        + (y0 + y4) * (z3 + z4)
-        - (y3 + y4) * (z0 + z4)
-        - (y2 + y5) * (z3 + z5)
-        + (y3 + y5) * (z2 + z5);
-
-  // dérivée dv/dy / 体积关于 y 的偏导数
-  *dvdy = -( (x1 + x2) * (z0 + z1) )
-          + (x0 + x1) * (z1 + z2)
-          - (x0 + x4) * (z3 + z4)
-          + (x3 + x4) * (z0 + z4)
-          + (x2 + x5) * (z3 + z5)
-          - (x3 + x5) * (z2 + z5);
-
-  // dérivée dv/dz / 体积关于 z 的偏导数
-  *dvdz = -( (y1 + y2) * (x0 + x1) )
-          + (y0 + y1) * (x1 + x2)
-          - (y0 + y4) * (x3 + x4)
-          + (y3 + y4) * (x0 + x4)
-          + (y2 + y5) * (x3 + x5)
-          - (y3 + y5) * (x2 + x5);
-
-  // Application du coefficient 1/12
-  // 乘以 1/12 系数
-  *dvdx *= twelfth;
-  *dvdy *= twelfth;
-  *dvdz *= twelfth;
+     }
+   });
 }
 
-// Fonction : calcule la dérivée volumique par nœud d’un élément hexaédrique.
-// 功能：根据六面体拓扑，将 VoluDer 应用于 8 个节点的不同局部配置。
+/******************************************/
+
 KOKKOS_INLINE_FUNCTION
-void CalcElemVolumeDerivative(Real_t dvdx[8], Real_t dvdy[8], Real_t dvdz[8],
-                              const Real_t x[8], const Real_t y[8],
-                              const Real_t z[8]) {
+static void VoluDer(const Real_t x0, const Real_t x1, const Real_t x2,
+                    const Real_t x3, const Real_t x4, const Real_t x5,
+                    const Real_t y0, const Real_t y1, const Real_t y2,
+                    const Real_t y3, const Real_t y4, const Real_t y5,
+                    const Real_t z0, const Real_t z1, const Real_t z2,
+                    const Real_t z3, const Real_t z4, const Real_t z5,
+                    Real_t* dvdx, Real_t* dvdy, Real_t* dvdz)
+{
+   const Real_t twelfth = Real_t(1.0) / Real_t(12.0) ;
 
-  // 下面每一行都是对应 LULESH 原始几何的固定模式，不可改变拓扑顺序
-  // Chaque appel VoluDer correspond à une face/rotation spécifique de l’élément.
+   *dvdx =
+      (y1 + y2) * (z0 + z1) - (y0 + y1) * (z1 + z2) +
+      (y0 + y4) * (z3 + z4) - (y3 + y4) * (z0 + z4) -
+      (y2 + y5) * (z3 + z5) + (y3 + y5) * (z2 + z5);
+   *dvdy =
+      - (x1 + x2) * (z0 + z1) + (x0 + x1) * (z1 + z2) -
+      (x0 + x4) * (z3 + z4) + (x3 + x4) * (z0 + z4) +
+      (x2 + x5) * (z3 + z5) - (x3 + x5) * (z2 + z5);
 
-  VoluDer(x[1], x[2], x[3], x[4], x[5], x[7],
-          y[1], y[2], y[3], y[4], y[5], y[7],
-          z[1], z[2], z[3], z[4], z[5], z[7],
-          &dvdx[0], &dvdy[0], &dvdz[0]);
+   *dvdz =
+      - (y1 + y2) * (x0 + x1) + (y0 + y1) * (x1 + x2) -
+      (y0 + y4) * (x3 + x4) + (y3 + y4) * (x0 + x4) +
+      (y2 + y5) * (x3 + x5) - (y3 + y5) * (x2 + x5);
 
-  VoluDer(x[0], x[1], x[2], x[7], x[4], x[6],
-          y[0], y[1], y[2], y[7], y[4], y[6],
-          z[0], z[1], z[2], z[7], z[4], z[6],
-          &dvdx[3], &dvdy[3], &dvdz[3]);
-
-  VoluDer(x[3], x[0], x[1], x[6], x[7], x[5],
-          y[3], y[0], y[1], y[6], y[7], y[5],
-          z[3], z[0], z[1], z[6], z[7], z[5],
-          &dvdx[2], &dvdy[2], &dvdz[2]);
-
-  VoluDer(x[2], x[3], x[0], x[5], x[6], x[4],
-          y[2], y[3], y[0], y[5], y[6], y[4],
-          z[2], z[3], z[0], z[5], z[6], z[4],
-          &dvdx[1], &dvdy[1], &dvdz[1]);
-
-  VoluDer(x[7], x[6], x[5], x[0], x[3], x[1],
-          y[7], y[6], y[5], y[0], y[3], y[1],
-          z[7], z[6], z[5], z[0], z[3], z[1],
-          &dvdx[4], &dvdy[4], &dvdz[4]);
-
-  VoluDer(x[4], x[7], x[6], x[1], x[0], x[2],
-          y[4], y[7], y[6], y[1], y[0], y[2],
-          z[4], z[7], z[6], z[1], z[0], z[2],
-          &dvdx[5], &dvdy[5], &dvdz[5]);
-
-  VoluDer(x[5], x[4], x[7], x[2], x[1], x[3],
-          y[5], y[4], y[7], y[2], y[1], y[3],
-          z[5], z[4], z[7], z[2], z[1], z[3],
-          &dvdx[6], &dvdy[6], &dvdz[6]);
-
-  VoluDer(x[6], x[5], x[4], x[3], x[2], x[0],
-          y[6], y[5], y[4], y[3], y[2], y[0],
-          z[6], z[5], z[4], z[3], z[2], z[0],
-          &dvdx[7], &dvdy[7], &dvdz[7]);
+   *dvdx *= twelfth;
+   *dvdy *= twelfth;
+   *dvdz *= twelfth;
 }
 
-// Fonction : calcul de la force hourglass FB (Flanagan-Belytschko)
-// 功能：计算 FB 小时玻璃控制力（基于 4 模式 hourglass vectors）
+/******************************************/
+
+KOKKOS_INLINE_FUNCTION
+static void CalcElemVolumeDerivative(Real_t dvdx[8],
+                                     Real_t dvdy[8],
+                                     Real_t dvdz[8],
+                                     const Real_t x[8],
+                                     const Real_t y[8],
+                                     const Real_t z[8])
+{
+   VoluDer(x[1], x[2], x[3], x[4], x[5], x[7],
+           y[1], y[2], y[3], y[4], y[5], y[7],
+           z[1], z[2], z[3], z[4], z[5], z[7],
+           &dvdx[0], &dvdy[0], &dvdz[0]);
+   VoluDer(x[0], x[1], x[2], x[7], x[4], x[6],
+           y[0], y[1], y[2], y[7], y[4], y[6],
+           z[0], z[1], z[2], z[7], z[4], z[6],
+           &dvdx[3], &dvdy[3], &dvdz[3]);
+   VoluDer(x[3], x[0], x[1], x[6], x[7], x[5],
+           y[3], y[0], y[1], y[6], y[7], y[5],
+           z[3], z[0], z[1], z[6], z[7], z[5],
+           &dvdx[2], &dvdy[2], &dvdz[2]);
+   VoluDer(x[2], x[3], x[0], x[5], x[6], x[4],
+           y[2], y[3], y[0], y[5], y[6], y[4],
+           z[2], z[3], z[0], z[5], z[6], z[4],
+           &dvdx[1], &dvdy[1], &dvdz[1]);
+   VoluDer(x[7], x[6], x[5], x[0], x[3], x[1],
+           y[7], y[6], y[5], y[0], y[3], y[1],
+           z[7], z[6], z[5], z[0], z[3], z[1],
+           &dvdx[4], &dvdy[4], &dvdz[4]);
+   VoluDer(x[4], x[7], x[6], x[1], x[0], x[2],
+           y[4], y[7], y[6], y[1], y[0], y[2],
+           z[4], z[7], z[6], z[1], z[0], z[2],
+           &dvdx[5], &dvdy[5], &dvdz[5]);
+   VoluDer(x[5], x[4], x[7], x[2], x[1], x[3],
+           y[5], y[4], y[7], y[2], y[1], y[3],
+           z[5], z[4], z[7], z[2], z[1], z[3],
+           &dvdx[6], &dvdy[6], &dvdz[6]);
+   VoluDer(x[6], x[5], x[4], x[3], x[2], x[0],
+           y[6], y[5], y[4], y[3], y[2], y[0],
+           z[6], z[5], z[4], z[3], z[2], z[0],
+           &dvdx[7], &dvdy[7], &dvdz[7]);
+}
+
+/******************************************/
+/* 
+   Calcule la force anti-hourglass de Flanagan-Belytschko pour un élément.
+   计算 Flanagan–Belytschko 反沙漏力（Hourglass Force）
+*/
 KOKKOS_INLINE_FUNCTION
 void CalcElemFBHourglassForce(Real_t *xd, Real_t *yd, Real_t *zd,
-                              Real_t hourgam[][4], Real_t coefficient,
-                              Real_t *hgfx, Real_t *hgfy, Real_t *hgfz) {
+                              Real_t hourgam[][4],
+                              Real_t coefficient,
+                              Real_t *hgfx, Real_t *hgfy, Real_t *hgfz)
+{
+   Real_t hxx[4];
 
-  Real_t hxx[4];
+   /* Calcul de la composante x des modes hourglass
+      计算 hourglass 模式的 x 分量 */
+   for(Index_t i = 0; i < 4; i++) {
+      hxx[i] = hourgam[0][i] * xd[0] + hourgam[1][i] * xd[1] +
+               hourgam[2][i] * xd[2] + hourgam[3][i] * xd[3] +
+               hourgam[4][i] * xd[4] + hourgam[5][i] * xd[5] +
+               hourgam[6][i] * xd[6] + hourgam[7][i] * xd[7];
+   }
 
-  // Première passe : direction x
-  // 第一步：沿 x 方向投影所有节点速度
-  for (Index_t i = 0; i < 4; i++) {
-    hxx[i] = hourgam[0][i] * xd[0] + hourgam[1][i] * xd[1] +
-             hourgam[2][i] * xd[2] + hourgam[3][i] * xd[3] +
-             hourgam[4][i] * xd[4] + hourgam[5][i] * xd[5] +
-             hourgam[6][i] * xd[6] + hourgam[7][i] * xd[7];
-  }
+   /* Contribution à la force en x
+      累积 x 方向力 */
+   for(Index_t i = 0; i < 8; i++) {
+      hgfx[i] = coefficient * (hourgam[i][0] * hxx[0] +
+                               hourgam[i][1] * hxx[1] +
+                               hourgam[i][2] * hxx[2] +
+                               hourgam[i][3] * hxx[3]);
+   }
 
-  // Force hourglass en x
-  // 计算 x 方向 HG 力
-  for (Index_t i = 0; i < 8; i++) {
-    hgfx[i] = coefficient * (
-      hourgam[i][0] * hxx[0] +
-      hourgam[i][1] * hxx[1] +
-      hourgam[i][2] * hxx[2] +
-      hourgam[i][3] * hxx[3]);
-  }
+   /* Mode y
+      计算 y 模式 */
+   for(Index_t i = 0; i < 4; i++) {
+      hxx[i] = hourgam[0][i] * yd[0] + hourgam[1][i] * yd[1] +
+               hourgam[2][i] * yd[2] + hourgam[3][i] * yd[3] +
+               hourgam[4][i] * yd[4] + hourgam[5][i] * yd[5] +
+               hourgam[6][i] * yd[6] + hourgam[7][i] * yd[7];
+   }
+   for(Index_t i = 0; i < 8; i++) {
+      hgfy[i] = coefficient * (hourgam[i][0] * hxx[0] +
+                               hourgam[i][1] * hxx[1] +
+                               hourgam[i][2] * hxx[2] +
+                               hourgam[i][3] * hxx[3]);
+   }
 
-  // Deuxième passe : direction y
-  // 第二步：沿 y 方向
-  for (Index_t i = 0; i < 4; i++) {
-    hxx[i] = hourgam[0][i] * yd[0] + hourgam[1][i] * yd[1] +
-             hourgam[2][i] * yd[2] + hourgam[3][i] * yd[3] +
-             hourgam[4][i] * yd[4] + hourgam[5][i] * yd[5] +
-             hourgam[6][i] * yd[6] + hourgam[7][i] * yd[7];
-  }
+   /* Mode z
+      计算 z 模式 */
+   for(Index_t i = 0; i < 4; i++) {
+      hxx[i] = hourgam[0][i] * zd[0] + hourgam[1][i] * zd[1] +
+               hourgam[2][i] * zd[2] + hourgam[3][i] * zd[3] +
+               hourgam[4][i] * zd[4] + hourgam[5][i] * zd[5] +
+               hourgam[6][i] * zd[6] + hourgam[7][i] * zd[7];
+   }
 
-  // Force hourglass en y
-  for (Index_t i = 0; i < 8; i++) {
-    hgfy[i] = coefficient * (
-      hourgam[i][0] * hxx[0] +
-      hourgam[i][1] * hxx[1] +
-      hourgam[i][2] * hxx[2] +
-      hourgam[i][3] * hxx[3]);
-  }
-
-  // Troisième passe : direction z
-  // 第三步：沿 z 方向
-  for (Index_t i = 0; i < 4; i++) {
-    hxx[i] = hourgam[0][i] * zd[0] + hourgam[1][i] * zd[1] +
-             hourgam[2][i] * zd[2] + hourgam[3][i] * zd[3] +
-             hourgam[4][i] * zd[4] + hourgam[5][i] * zd[5] +
-             hourgam[6][i] * zd[6] + hourgam[7][i] * zd[7];
-  }
-
-  // Force hourglass en z
-  for (Index_t i = 0; i < 8; i++) {
-    hgfz[i] = coefficient * (
-      hourgam[i][0] * hxx[0] +
-      hourgam[i][1] * hxx[1] +
-      hourgam[i][2] * hxx[2] +
-      hourgam[i][3] * hxx[3]);
-  }
+   for(Index_t i = 0; i < 8; i++) {
+      hgfz[i] = coefficient * (hourgam[i][0] * hxx[0] +
+                               hourgam[i][1] * hxx[1] +
+                               hourgam[i][2] * hxx[2] +
+                               hourgam[i][3] * hxx[3]);
+   }
 }
 
-// Fonction : force hourglass FB pour tous les éléments
-// 功能：为所有单元计算 FB 小时玻璃控制力（Flanagan–Belytschko）
-static inline
-void CalcFBHourglassForceForElems(Domain &domain, Real_t *determ,
-                                  Real_t *x8n, Real_t *y8n, Real_t *z8n,
-                                  Real_t *dvdx, Real_t *dvdy, Real_t *dvdz,
-                                  Real_t hourg, Index_t numElem,
+/* 
+   Calcule la force anti-hourglass (Flanagan–Belytschko)
+   计算 Flanagan–Belytschko 反沙漏力（Hourglass Force）
+*/
+void CalcFBHourglassForceForElems(Domain& domain,
+                                  Real_t* determ,
+                                  Real_t* x8n, Real_t* y8n, Real_t* z8n,
+                                  Real_t* dvdx, Real_t* dvdy, Real_t* dvdz,
+                                  Real_t hourg,
+                                  Index_t numElem,
                                   Index_t numNode)
 {
-#if _OPENMP
-  Index_t numthreads = omp_get_max_threads();  
-  // Nombre de threads OpenMP / OpenMP 线程数
-#else
-  Index_t numthreads = 1;  
-  // Mode séquentiel / 单线程模式
-#endif
-
-  Index_t numElem8 = numElem * 8;  
-  // Nombre total de coefficients (8 par élément)
-
-  Real_t *fx_elem;
-  Real_t *fy_elem;
-  Real_t *fz_elem;
-
-  // Allocation seulement si on a du parallélisme externe
-  // 若启用多线程，则分配 per-element 临时力数组
-  if (numthreads > 1) {
-    fx_elem = Allocate<Real_t>(numElem8);
-    fy_elem = Allocate<Real_t>(numElem8);
-    fz_elem = Allocate<Real_t>(numElem8);
-  }
-
-  // --------------------------
-  // Matrice gamma 4x8 (modes hourglass)
-  // 4 个小时玻璃模式，对应 8 节点权重
-  // --------------------------
-  Real_t gamma[4][8];
-
-  gamma[0][0] = Real_t(1.);
-  gamma[0][1] = Real_t(1.);
-  gamma[0][2] = Real_t(-1.);
-  gamma[0][3] = Real_t(-1.);
-  gamma[0][4] = Real_t(-1.);
-  gamma[0][5] = Real_t(-1.);
-  gamma[0][6] = Real_t(1.);
-  gamma[0][7] = Real_t(1.);
-
-  gamma[1][0] = Real_t(1.);
-  gamma[1][1] = Real_t(-1.);
-  gamma[1][2] = Real_t(-1.);
-  gamma[1][3] = Real_t(1.);
-  gamma[1][4] = Real_t(-1.);
-  gamma[1][5] = Real_t(1.);
-  gamma[1][6] = Real_t(1.);
-  gamma[1][7] = Real_t(-1.);
-
-  gamma[2][0] = Real_t(1.);
-  gamma[2][1] = Real_t(-1.);
-  gamma[2][2] = Real_t(1.);
-  gamma[2][3] = Real_t(-1.);
-  gamma[2][4] = Real_t(1.);
-  gamma[2][5] = Real_t(-1.);
-  gamma[2][6] = Real_t(1.);
-  gamma[2][7] = Real_t(-1.);
-
-  gamma[3][0] = Real_t(-1.);
-  gamma[3][1] = Real_t(1.);
-  gamma[3][2] = Real_t(-1.);
-  gamma[3][3] = Real_t(1.);
-  gamma[3][4] = Real_t(1.);
-  gamma[3][5] = Real_t(-1.);
-  gamma[3][6] = Real_t(1.);
-  gamma[3][7] = Real_t(-1.);
-}
-
-Kokkos::parallel_for("CalcFBHourglassForceForElems A", numElem,
-  KOKKOS_LAMBDA(const int &i2) {
-
-    // fx_local / fy_local / fz_local : tampon local (utilisé en mode séquentiel)
-    // 本地缓存数组（仅用于单线程模式）
-    Real_t *fx_local, *fy_local, *fz_local;
-
-    // Forces hourglass pour 8 nœuds
-    // 8 个节点的小时玻璃力
-    Real_t hgfx[8], hgfy[8], hgfz[8];
-
-    Real_t coefficient;  
-    // coefficient : facteur d'échelle pour les forces hourglass
-    // 小时玻璃力的缩放因子
-
-    // hourgam : coefficients modifiés de la matrice hourglass (8 nœuds × 4 modes)
-    // hourgam：修正后的小时玻璃矩阵（8 节点 × 4 模式）
-    Real_t hourgam[8][4];
-
-    // xd1, yd1, zd1 : vitesses nodales locales
-    // 本地节点速度
-    Real_t xd1[8], yd1[8], zd1[8];
-
-    const Index_t *elemToNode = domain.nodelist(i2);
-    // elemToNode : table de correspondance élément → nœuds
-    // 单元 i2 对应的全局节点编号
-
-    Index_t i3 = 8 * i2;
-    // i3 : offset dans les tableaux x8n[], y8n[], z8n[] pour cet élément
-    // 当前单元在展开数组中的偏移量
-
-    Real_t volinv = Real_t(1.0) / determ[i2];
-    // volinv : inverse du volume du tétraèdre / 当前单元体积的倒数
-
-    Real_t ss1, mass1, volume13;
-    // ss1 : sound speed / 声速
-    // mass1 : masse de l’élément / 单元质量
-    // volume13 : racine cubique du volume / 体积的立方根
-
-    // 1) Construction des coefficients hourglass corrigés (hourgam)
-    // 计算修正后的小时玻璃模式 hourgam
-    // Chaque mode hourglass (4 modes) doit être orthogonalisé via dvdx/dvdy/dvdz
-    // 每一个小时玻璃模式（4 模式）都必须通过 dv* 向量进行正交修正
-    for (Index_t i1 = 0; i1 < 4; ++i1) {
-
-      // hourmodx/y/z : projection du mode hourglass sur les coordonnées x,y,z
-      // hourmodx/y/z：模式与节点几何的投影
-      Real_t hourmodx =
-        x8n[i3]     * gamma[i1][0] +
-        x8n[i3 + 1] * gamma[i1][1] +
-        x8n[i3 + 2] * gamma[i1][2] +
-        x8n[i3 + 3] * gamma[i1][3] +
-        x8n[i3 + 4] * gamma[i1][4] +
-        x8n[i3 + 5] * gamma[i1][5] +
-        x8n[i3 + 6] * gamma[i1][6] +
-        x8n[i3 + 7] * gamma[i1][7];
-
-      Real_t hourmody =
-        y8n[i3]     * gamma[i1][0] +
-        y8n[i3 + 1] * gamma[i1][1] +
-        y8n[i3 + 2] * gamma[i1][2] +
-        y8n[i3 + 3] * gamma[i1][3] +
-        y8n[i3 + 4] * gamma[i1][4] +
-        y8n[i3 + 5] * gamma[i1][5] +
-        y8n[i3 + 6] * gamma[i1][6] +
-        y8n[i3 + 7] * gamma[i1][7];
-
-      Real_t hourmodz =
-        z8n[i3]     * gamma[i1][0] +
-        z8n[i3 + 1] * gamma[i1][1] +
-        z8n[i3 + 2] * gamma[i1][2] +
-        z8n[i3 + 3] * gamma[i1][3] +
-        z8n[i3 + 4] * gamma[i1][4] +
-        z8n[i3 + 5] * gamma[i1][5] +
-        z8n[i3 + 6] * gamma[i1][6] +
-        z8n[i3 + 7] * gamma[i1][7];
-
-      // hourgam[?][i1] = gamma - volinv * (dvdx*dX + dvdy*dY + dvdz*dZ)
-      // 修正 hourglass 模式，使其不改变单元体积（体积正交化）
-      hourgam[0][i1] =
-        gamma[i1][0] -
-        volinv * (dvdx[i3]     * hourmodx +
-                  dvdy[i3]     * hourmody +
-                  dvdz[i3]     * hourmodz);
-
-      hourgam[1][i1] =
-        gamma[i1][1] -
-        volinv * (dvdx[i3 + 1] * hourmodx +
-                  dvdy[i3 + 1] * hourmody +
-                  dvdz[i3 + 1] * hourmodz);
-
-      hourgam[2][i1] =
-        gamma[i1][2] -
-        volinv * (dvdx[i3 + 2] * hourmodx +
-                  dvdy[i3 + 2] * hourmody +
-                  dvdz[i3 + 2] * hourmodz);
-
-      hourgam[3][i1] =
-        gamma[i1][3] -
-        volinv * (dvdx[i3 + 3] * hourmodx +
-                  dvdy[i3 + 3] * hourmody +
-                  dvdz[i3 + 3] * hourmodz);
-
-      hourgam[4][i1] =
-        gamma[i1][4] -
-        volinv * (dvdx[i3 + 4] * hourmodx +
-                  dvdy[i3 + 4] * hourmody +
-                  dvdz[i3 + 4] * hourmodz);
-
-      hourgam[5][i1] =
-        gamma[i1][5] -
-        volinv * (dvdx[i3 + 5] * hourmodx +
-                  dvdy[i3 + 5] * hourmody +
-                  dvdz[i3 + 5] * hourmodz);
-
-      hourgam[6][i1] =
-        gamma[i1][6] -
-        volinv * (dvdx[i3 + 6] * hourmodx +
-                  dvdy[i3 + 6] * hourmody +
-                  dvdz[i3 + 6] * hourmodz);
-
-      hourgam[7][i1] =
-        gamma[i1][7] -
-        volinv * (dvdx[i3 + 7] * hourmodx +
-                  dvdy[i3 + 7] * hourmody +
-                  dvdz[i3 + 7] * hourmodz);
-    }
-
-    // 2) Lecture des constantes physiques : ss (sound speed), mass, volume
-    // 读取单元物理常数：声速、单元质量、体积立方根
-    ss1 = domain.ss(i2);
-    mass1 = domain.elemMass(i2);
-    volume13 = CBRT(determ[i2]);
-
-    // 3) Chargement des vitesses nodales pour les 8 nœuds du hexaèdre
-    // 读取 8 个节点的速度
-    Index_t n0si2 = elemToNode[0];
-    Index_t n1si2 = elemToNode[1];
-    Index_t n2si2 = elemToNode[2];
-    Index_t n3si2 = elemToNode[3];
-    Index_t n4si2 = elemToNode[4];
-    Index_t n5si2 = elemToNode[5];
-    Index_t n6si2 = elemToNode[6];
-    Index_t n7si2 = elemToNode[7];
-
-    xd1[0] = domain.xd(n0si2);
-    xd1[1] = domain.xd(n1si2);
-    xd1[2] = domain.xd(n2si2);
-    xd1[3] = domain.xd(n3si2);
-    xd1[4] = domain.xd(n4si2);
-    xd1[5] = domain.xd(n5si2);
-    xd1[6] = domain.xd(n6si2);
-    xd1[7] = domain.xd(n7si2);
-
-    yd1[0] = domain.yd(n0si2);
-    yd1[1] = domain.yd(n1si2);
-    yd1[2] = domain.yd(n2si2);
-    yd1[3] = domain.yd(n3si2);
-    yd1[4] = domain.yd(n4si2);
-    yd1[5] = domain.yd(n5si2);
-    yd1[6] = domain.yd(n6si2);
-    yd1[7] = domain.yd(n7si2);
-
-    zd1[0] = domain.zd(n0si2);
-    zd1[1] = domain.zd(n1si2);
-    zd1[2] = domain.zd(n2si2);
-    zd1[3] = domain.zd(n3si2);
-    zd1[4] = domain.zd(n4si2);
-    zd1[5] = domain.zd(n5si2);
-    zd1[6] = domain.zd(n6si2);
-    zd1[7] = domain.zd(n7si2);
-
-        // coefficient : coefficient global des forces hourglass
-    // 小时玻璃力的全局系数
-    coefficient = -hourg * Real_t(0.01) * ss1 * mass1 / volume13;
-
-    // Calcul des forces hourglass pour cet élément
-    // 计算该单元的小时玻璃力
-    CalcElemFBHourglassForce(xd1, yd1, zd1, hourgam, coefficient,
-                             hgfx, hgfy, hgfz);
-
-    // Si on utilise plusieurs threads OpenMP : stockage temporaire dans fx_elem/fy_elem/fz_elem
-    // 如果使用多线程模式：将结果写入 fx_elem/fy_elem/fz_elem（延后归并）
-    if (numthreads > 1) {
-
-      // fx_local : pointeur vers la zone locale de l’élément i3 dans fx_elem
-      // fx_local：指向当前单元 i3 的 fx_elem 局部区域
-      fx_local = &fx_elem[i3];
-      fx_local[0] = hgfx[0];
-      fx_local[1] = hgfx[1];
-      fx_local[2] = hgfx[2];
-      fx_local[3] = hgfx[3];
-      fx_local[4] = hgfx[4];
-      fx_local[5] = hgfx[5];
-      fx_local[6] = hgfx[6];
-      fx_local[7] = hgfx[7];
-
-      // fy_local : idem pour fy_elem
-      // fy_local 同理，写 fy_elem
-      fy_local = &fy_elem[i3];
-      fy_local[0] = hgfy[0];
-      fy_local[1] = hgfy[1];
-      fy_local[2] = hgfy[2];
-      fy_local[3] = hgfy[3];
-      fy_local[4] = hgfy[4];
-      fy_local[5] = hgfy[5];
-      fy_local[6] = hgfy[6];
-      fy_local[7] = hgfy[7];
-
-      // fz_local : idem pour fz_elem
-      // fz_local 同理，写 fz_elem
-      fz_local = &fz_elem[i3];
-      fz_local[0] = hgfz[0];
-      fz_local[1] = hgfz[1];
-      fz_local[2] = hgfz[2];
-      fz_local[3] = hgfz[3];
-      fz_local[4] = hgfz[4];
-      fz_local[5] = hgfz[5];
-      fz_local[6] = hgfz[6];
-      fz_local[7] = hgfz[7];
-
-    } else {
-
-      // Mode séquentiel : on applique directement la force sur les nœuds du domaine
-      // 单线程模式：直接将小时玻璃力加到域节点上
-
-      domain.fx(n0si2) += hgfx[0];
-      domain.fy(n0si2) += hgfy[0];
-      domain.fz(n0si2) += hgfz[0];
-
-      domain.fx(n1si2) += hgfx[1];
-      domain.fy(n1si2) += hgfy[1];
-      domain.fz(n1si2) += hgfz[1];
-
-      domain.fx(n2si2) += hgfx[2];
-      domain.fy(n2si2) += hgfy[2];
-      domain.fz(n2si2) += hgfz[2];
-
-      domain.fx(n3si2) += hgfx[3];
-      domain.fy(n3si2) += hgfy[3];
-      domain.fz(n3si2) += hgfz[3];
-
-      domain.fx(n4si2) += hgfx[4];
-      domain.fy(n4si2) += hgfy[4];
-      domain.fz(n4si2) += hgfz[4];
-
-      domain.fx(n5si2) += hgfx[5];
-      domain.fy(n5si2) += hgfy[5];
-      domain.fz(n5si2) += hgfz[5];
-
-      domain.fx(n6si2) += hgfx[6];
-      domain.fy(n6si2) += hgfy[6];
-      domain.fz(n6si2) += hgfz[6];
-
-      domain.fx(n7si2) += hgfx[7];
-      domain.fy(n7si2) += hgfy[7];
-      domain.fz(n7si2) += hgfz[7];
-    }
-  });
-
-// Si plusieurs threads OpenMP sont utilisés : réduction parallèle des forces sur chaque nœud
-// 如果启用多线程 OpenMP：对每个节点的力进行并行归并
-if (numthreads > 1) {
-
-    Kokkos::parallel_for("CalcFBHourglassForceForElems B", numNode,
-                         KOKKOS_LAMBDA(const int gnode) {
-
-        // count : nombre d'éléments connectés à ce nœud
-        // count：该节点关联的单元数
-        Index_t count = domain.nodeElemCount(gnode);
-
-        // cornerList : liste des indices (8*k + lnode) correspondant aux coins associés
-        // cornerList：当前节点对应的 corner 索引列表（即元素局部节点号展平后的索引）
-        Index_t* cornerList = domain.nodeElemCornerList(gnode);
-
-        // fx_tmp, fy_tmp, fz_tmp : accumulation temporaire des forces
-        // fx_tmp, fy_tmp, fz_tmp：用于累加来自所有单元的节点力
-        Real_t fx_tmp = Real_t(0.0);
-        Real_t fy_tmp = Real_t(0.0);
-        Real_t fz_tmp = Real_t(0.0);
-
-        // Accumulation des contributions
-        // 累加每个关联 corner 的贡献
-        for (Index_t i = 0; i < count; ++i) {
-            Index_t ielem = cornerList[i];
-            fx_tmp += fx_elem[ielem];
-            fy_tmp += fy_elem[ielem];
-            fz_tmp += fz_elem[ielem];
-        }
-
-        // Mise à jour des forces nodales globales
-        // 更新域中该节点的全局力
-        domain.fx(gnode) += fx_tmp;
-        domain.fy(gnode) += fy_tmp;
-        domain.fz(gnode) += fz_tmp;
-    });
-
-    // Libération des tableaux temporaires
-    // 释放线程模式下使用的临时数组
-    Release(&fz_elem);
-    Release(&fy_elem);
-    Release(&fx_elem);
-}
-}
-
-// Fonction de contrôle des hourglass pour tous les éléments
-// 对所有单元执行 Hourglass 控制力计算
-static inline void CalcHourglassControlForElems(Domain& domain,
-                                                Real_t determ[],
-                                                Real_t hgcoef) {
-
-    // numElem : nombre total d’éléments
-    // numElem：单元总数
-    Index_t numElem = domain.numElem();
-
-    // numElem8 : nombre total de valeurs (8 par élément)
-    // numElem8：总长度（每个单元 8 个节点）
-    Index_t numElem8 = numElem * 8;
-
-    // Allocation des dérivées du volume par nœud
-    // 分配体积导数数组
-    Real_t* dvdx = Allocate<Real_t>(numElem8);
-    Real_t* dvdy = Allocate<Real_t>(numElem8);
-    Real_t* dvdz = Allocate<Real_t>(numElem8);
-
-    // Coordonnées des 8 nœuds pour chaque élément (aplaties)
-    // 存储每个单元的 8 个节点坐标（展平格式）
-    Real_t* x8n = Allocate<Real_t>(numElem8);
-    Real_t* y8n = Allocate<Real_t>(numElem8);
-    Real_t* z8n = Allocate<Real_t>(numElem8);
-
-    // Boucle parallèle sur les éléments
-    // 对所有单元执行并行循环
-    Kokkos::parallel_for(numElem, KOKKOS_LAMBDA(const int i) {
-
-        // x1, y1, z1 : positions nodales locales (taille 8)
-        // x1, y1, z1：该单元 8 个节点的坐标
-        Real_t x1[8], y1[8], z1[8];
-
-        // pfx, pfy, pfz : dérivées du volume
-        // pfx, pfy, pfz：体积导数
-        Real_t pfx[8], pfy[8], pfz[8];
-
-        // elemToNode : mapping vers les 8 nœuds globaux
-        // elemToNode：全局 8 节点 ID 映射
-        Index_t* elemToNode = domain.nodelist(i);
-
-        // Récupère les coordonnées nodales
-        // 收集单元的节点坐标
-        CollectDomainNodesToElemNodes(domain, elemToNode, x1, y1, z1);
-
-        // Calcule les dérivées du volume dV/dx, dV/dy, dV/dz
-        // 计算体积导数
-        CalcElemVolumeDerivative(pfx, pfy, pfz, x1, y1, z1);
-
-        // Stocke les valeurs (aplaties dans dvdx/dvdy/dvdz)
-        // 将结果写入展平数组
-        for (Index_t ii = 0; ii < 8; ++ii) {
-            Index_t jj = 8 * i + ii;
-
-            dvdx[jj] = pfx[ii];
-            dvdy[jj] = pfy[ii];
-            dvdz[jj] = pfz[ii];
-            x8n[jj]  = x1[ii];
-            y8n[jj]  = y1[ii];
-            z8n[jj]  = z1[ii];
-        }
-
-        // determ[i] = volume de référence * volume relatif actuel
-        // determ[i] = 初始体积 * 当前相对体积
-        determ[i] = domain.volo(i) * domain.v(i);
-
-        // Si le volume devient négatif : erreur fatale
-        // 如果体积为负，触发致命错误
-        if (domain.v(i) <= Real_t(0.0)) {
-#if USE_MPI
-            MPI_Abort(MPI_COMM_WORLD, VolumeError);
-#else
-            exit(VolumeError);
-#endif
-        }
-    });
-
-    // Si coef hourglass > 0 : appliquer les forces hourglass
-    // 若开启 HG 控制：计算 Hourglass 力
-    if (hgcoef > Real_t(0.)) {
-        CalcFBHourglassForceForElems(domain, determ,
-                                     x8n, y8n, z8n,
-                                     dvdx, dvdy, dvdz,
-                                     hgcoef, numElem,
-                                     domain.numNode());
-    }
-
-    // Libération des tableaux alloués
-    // 释放进行 HG 计算时分配的所有临时数组
-    Release(&z8n);
-    Release(&y8n);
-    Release(&x8n);
-    Release(&dvdz);
-    Release(&dvdy);
-    Release(&dvdx);
-
-    return;
-}
-
-// Fonction : CalcVolumeForceForElems
-// 作用：计算单元体积力（压力 + 黏性 + hourglass）并累积到节点力
-static inline void CalcVolumeForceForElems(Domain &domain) {
-
-  // numElem : nombre total d'éléments
-  // numElem：单元总数
-  Index_t numElem = domain.numElem();
-
-  if (numElem != 0) {
-
-    // hgcoef : coefficient hourglass global
-    // hgcoef：Hourglass 总系数
-    Real_t hgcoef = domain.hgcoef();
-
-    // Allocation des tableaux de contraintes et de déterminants
-    // 分配应力与体积行列式数组
-    Real_t* sigxx = Allocate<Real_t>(numElem);
-    Real_t* sigyy = Allocate<Real_t>(numElem);
-    Real_t* sigzz = Allocate<Real_t>(numElem);
-    Real_t* determ = Allocate<Real_t>(numElem);
-
-    // Initialise sigxx, sigyy, sigzz = -(p + q)
-    // 初始化应力项 sigxx = sigyy = sigzz = - (p + q)
-    InitStressTermsForElems(domain, sigxx, sigyy, sigzz, numElem);
-
-    // Calcule les forces de volume par intégration des contraintes
-    // 通过积分应力计算体积力
-    IntegrateStressForElems(domain, sigxx, sigyy, sigzz,
-                            determ, numElem, domain.numNode());
-
-    // Vérification du signe du déterminant (volume)
-    // 检查体积是否为正，否则报错
-    Kokkos::parallel_for(numElem, KOKKOS_LAMBDA(const int k) {
-      if (determ[k] <= Real_t(0.0)) {
-#if USE_MPI
-        MPI_Abort(MPI_COMM_WORLD, VolumeError);
-#else
-        exit(VolumeError);
-#endif
+   /* 
+      Tableaux gamma : modes hourglass de référence.
+      gamma 数组：标准 hourglass 模式
+   */
+   Real_t gamma[4][8] = {
+      { 1.,  1., -1., -1., -1., -1.,  1.,  1.},
+      { 1., -1., -1.,  1., -1.,  1.,  1., -1.},
+      { 1., -1.,  1., -1.,  1., -1.,  1., -1.},
+      {-1.,  1., -1.,  1.,  1., -1.,  1., -1.}
+   };
+
+   /* 
+      Boucle parallèle sur les éléments
+      对所有单元执行并行计算
+   */
+   Kokkos::parallel_for(
+      "CalcFBHourglassForceForElems",
+      Kokkos::RangePolicy<>(0, numElem),
+      KOKKOS_LAMBDA(const Index_t i2)
+   {
+      Real_t hourgam[8][4];
+      Real_t xd1[8], yd1[8], zd1[8];
+      Real_t hgfx[8], hgfy[8], hgfz[8];
+
+      const Index_t* elemToNode = domain.nodelist(i2);
+      const Index_t base = i2 * 8;
+
+      Real_t volinv = Real_t(1.0) / determ[i2];
+
+      /* 
+         Calcule les modes hourglass modifiés.
+         计算修正后的 hourglass 模式 hourgam
+      */
+      for (Index_t m = 0; m < 4; ++m) {
+
+         Real_t hourmodx =
+            x8n[base+0] * gamma[m][0] + x8n[base+1] * gamma[m][1] +
+            x8n[base+2] * gamma[m][2] + x8n[base+3] * gamma[m][3] +
+            x8n[base+4] * gamma[m][4] + x8n[base+5] * gamma[m][5] +
+            x8n[base+6] * gamma[m][6] + x8n[base+7] * gamma[m][7];
+
+         Real_t hourmody =
+            y8n[base+0] * gamma[m][0] + y8n[base+1] * gamma[m][1] +
+            y8n[base+2] * gamma[m][2] + y8n[base+3] * gamma[m][3] +
+            y8n[base+4] * gamma[m][4] + y8n[base+5] * gamma[m][5] +
+            y8n[base+6] * gamma[m][6] + y8n[base+7] * gamma[m][7];
+
+         Real_t hourmodz =
+            z8n[base+0] * gamma[m][0] + z8n[base+1] * gamma[m][1] +
+            z8n[base+2] * gamma[m][2] + z8n[base+3] * gamma[m][3] +
+            z8n[base+4] * gamma[m][4] + z8n[base+5] * gamma[m][5] +
+            z8n[base+6] * gamma[m][6] + z8n[base+7] * gamma[m][7];
+
+         for (Index_t n = 0; n < 8; ++n) {
+            hourgam[n][m] =
+                 gamma[m][n]
+               - volinv * ( dvdx[base+n] * hourmodx +
+                            dvdy[base+n] * hourmody +
+                            dvdz[base+n] * hourmodz );
+         }
       }
-    });
 
-    // Calcul des forces hourglass
-    // 计算 Hourglass 力
-    CalcHourglassControlForElems(domain, determ, hgcoef);
+      /* 
+         Charge les vitesses nodales
+         加载节点速度 xd/yd/zd
+      */
+      for(Index_t n = 0; n < 8; ++n) {
+         Index_t g = elemToNode[n];
+         xd1[n] = domain.xd(g);
+         yd1[n] = domain.yd(g);
+         zd1[n] = domain.zd(g);
+      }
 
-    // Libération
-    // 释放内存
-    Release(&determ);
-    Release(&sigzz);
-    Release(&sigyy);
-    Release(&sigxx);
-  }
+      /* 
+         coefficient = - hourg * 0.01 * ss * mass / volume^(1/3)
+         计算力系数
+      */
+      Real_t ss1     = domain.ss(i2);
+      Real_t mass1   = domain.elemMass(i2);
+      Real_t volume13 = CBRT(determ[i2]);
+      Real_t coefficient = - hourg * Real_t(0.01) * ss1 * mass1 / volume13;
+
+      /* 
+         Calcule les forces hourglass sur les 8 nœuds
+         计算 8 个节点的沙漏力
+      */
+      CalcElemFBHourglassForce(xd1, yd1, zd1,
+                               hourgam,
+                               coefficient,
+                               hgfx, hgfy, hgfz);
+
+      /* 
+         Ajoute les forces à chaque nœud
+         累积节点的力（atomic 以避免并发写）
+      */
+      for(Index_t n = 0; n < 8; ++n) {
+         Index_t g = elemToNode[n];
+        Kokkos::atomic_add(domain.fx_ptr() + g, hgfx[n]);
+	Kokkos::atomic_add(domain.fy_ptr() + g, hgfy[n]);
+	Kokkos::atomic_add(domain.fz_ptr() + g, hgfz[n]);
+
+      }
+   });
 }
 
-// Fonction : CalcForceForNodes
-// 作用：清零节点力 → 计算体积力 → MPI 边界通信
-static inline void CalcForceForNodes(Domain &domain) {
+/* 
+   Calcule les dérivées de volume et prépare le contrôle hourglass.
+   计算体积导数并为 hourglass 控制做准备
+*/
+void CalcHourglassControlForElems(Domain& domain,
+                                  Real_t determ[],
+                                  Real_t hgcoef)
+{
+   Index_t numElem  = domain.numElem();
+   Index_t numElem8 = numElem * 8;
 
-  // numNode : nombre total de nœuds
-  // numNode：节点总数
-  Index_t numNode = domain.numNode();
+   /* 
+      Allocation des tableaux temporaires (host ou device selon implémentation)
+      分配临时数组（遵从你的 Allocate/Release 接口）
+   */
+   Real_t* dvdx = Allocate<Real_t>(numElem8);
+   Real_t* dvdy = Allocate<Real_t>(numElem8);
+   Real_t* dvdz = Allocate<Real_t>(numElem8);
+
+   Real_t* x8n  = Allocate<Real_t>(numElem8);
+   Real_t* y8n  = Allocate<Real_t>(numElem8);
+   Real_t* z8n  = Allocate<Real_t>(numElem8);
+
+   /* 
+      Boucle parallèle : calcule pfx/pfy/pfz et les coordonnées locales x8n/y8n/z8n
+      并行循环：计算体积导数并填充 x8n/y8n/z8n
+   */
+   Kokkos::parallel_for(
+      "CalcHourglassControlForElems",
+      Kokkos::RangePolicy<>(0, numElem),
+      KOKKOS_LAMBDA(const Index_t i)
+   {
+      Real_t x1[8], y1[8], z1[8];
+      Real_t pfx[8], pfy[8], pfz[8];
+
+      const Index_t* elemToNode = domain.nodelist(i);
+
+      /* 
+         Charge les coordonnées des 8 nœuds dans des tableaux locaux.
+         加载 8 节点坐标到局部数组
+      */
+      CollectDomainNodesToElemNodes(domain, elemToNode, x1, y1, z1);
+
+      /* 
+         Calcule les dérivées du volume pour les 8 nœuds
+         计算 8 个节点的体积导数
+      */
+      CalcElemVolumeDerivative(pfx, pfy, pfz, x1, y1, z1);
+
+      /* 
+         Stockage dans les tableaux temporaires dvdx, dvdy, dvdz, x8n, y8n, z8n
+         将结果写入临时数组
+      */
+      for (Index_t n = 0; n < 8; ++n) {
+         Index_t idx = 8 * i + n;
+         dvdx[idx] = pfx[n];
+         dvdy[idx] = pfy[n];
+         dvdz[idx] = pfz[n];
+
+         x8n[idx]  = x1[n];
+         y8n[idx]  = y1[n];
+         z8n[idx]  = z1[n];
+      }
+
+      /* 
+         determ[i] = vol0 * v
+         储存初始体积（用于 hourglass 计算）
+      */
+      determ[i] = domain.volo(i) * domain.v(i);
+
+      /* Vérification des volumes négatifs
+         检查负体积 */
+      if (domain.v(i) <= Real_t(0.0)) {
+         exit(VolumeError);
+      }
+   });
+
+   /* 
+      Si le coefficient hourglass > 0, appliquer le calcul FB hourglass
+      若 hgcoef > 0，则调用 FB Hourglass 力方法
+   */
+   if (hgcoef > Real_t(0.0)) {
+      CalcFBHourglassForceForElems(
+         domain,
+         determ,
+         x8n, y8n, z8n,
+         dvdx, dvdy, dvdz,
+         hgcoef,
+         numElem,
+         domain.numNode()
+      );
+   }
+
+   /* 
+      Libération de la mémoire temporaire
+      释放临时内存
+   */
+   Release(&z8n);
+   Release(&y8n);
+   Release(&x8n);
+   Release(&dvdz);
+   Release(&dvdy);
+   Release(&dvdx);
+}
+/* 
+   Calcule les forces de volume pour tous les éléments.
+   计算所有单元的体积力（包括应力部分 + 沙漏部分）
+*/
+void CalcVolumeForceForElems(Domain& domain)
+{
+   Index_t numElem = domain.numElem();
+
+   if (numElem == 0) {
+      return;
+   }
+
+   Real_t hgcoef = domain.hgcoef();
+
+   /* 
+      Allocation des tableaux de contraintes et volumes
+      分配应力与体积数组
+   */
+   Real_t* sigxx  = Allocate<Real_t>(numElem);
+   Real_t* sigyy  = Allocate<Real_t>(numElem);
+   Real_t* sigzz  = Allocate<Real_t>(numElem);
+   Real_t* determ = Allocate<Real_t>(numElem);
+
+   /* 
+      Initialise les termes de contraintes sigxx/sigyy/sigzz
+      初始化应力项（sigxx/sigyy/sigzz）
+   */
+   InitStressTermsForElems(domain, sigxx, sigyy, sigzz, numElem);
+
+   /* 
+      Intégration des contraintes dans les forces nodales
+      将应力积分转化为节点力 (Volume + deviatoric)
+   */
+   IntegrateStressForElems(
+         domain,
+         sigxx, sigyy, sigzz,
+         determ,
+         numElem,
+         domain.numNode()
+      );
+
+   /* 
+      Vérification du volume négatif
+      检查是否出现负体积
+   */
+   Kokkos::parallel_for(
+      "CheckElemVolume",
+      Kokkos::RangePolicy<>(0, numElem),
+      KOKKOS_LAMBDA(const Index_t k)
+   {
+      if (determ[k] <= Real_t(0.0)) {
+         exit(VolumeError);
+      }
+   });
+
+   /* 
+      Contrôle hourglass si nécessaire
+      如需要则进行沙漏控制
+   */
+   CalcHourglassControlForElems(domain, determ, hgcoef);
+
+   /* 
+      Libération mémoire
+      释放内存
+   */
+   Release(&determ);
+   Release(&sigzz);
+   Release(&sigyy);
+   Release(&sigxx);
+}
+
+/* 
+   Calcule les forces totales pour tous les nœuds.
+   计算所有节点的总力（包括单元体积力 + 沙漏力）
+*/
+void CalcForceForNodes(Domain& domain)
+{
+   Index_t numNode = domain.numNode();
 
 #if USE_MPI
-  // Réception des valeurs fantômes avant le calcul local
-  // 在本地计算前接收 Ghost 值
-  CommRecv(domain, MSG_COMM_SBN, 3,
-           domain.sizeX() + 1,
-           domain.sizeY() + 1,
-           domain.sizeZ() + 1,
-           true, false);
+   /* 
+      Réception des données fantômes (ghost nodes) pour les forces.
+      接收 ghost 节点力信息（MPI，接口保留）
+   */
+   CommRecv(domain, MSG_COMM_SBN, 3,
+            domain.sizeX() + 1,
+            domain.sizeY() + 1,
+            domain.sizeZ() + 1,
+            true, false);
 #endif
 
-  // Mise à zéro des forces nodales
-  // 将所有节点力设为 0
-  Kokkos::parallel_for("CalcForceForNodes", numNode,
-                       KOKKOS_LAMBDA(const int i) {
-    domain.fx(i) = Real_t(0.0);
-    domain.fy(i) = Real_t(0.0);
-    domain.fz(i) = Real_t(0.0);
-  });
+   /* 
+      Mise à zéro des forces nodales fx, fy, fz
+      将所有节点力 fx/fy/fz 清零
+   */
+   Kokkos::parallel_for(
+      "ZeroNodeForces",
+      Kokkos::RangePolicy<>(0, numNode),
+      KOKKOS_LAMBDA(const Index_t i) mutable
+   {
+      domain.fx(i) = Real_t(0.0);
+      domain.fy(i) = Real_t(0.0);
+      domain.fz(i) = Real_t(0.0);
+   });
 
-  // Calcul complet des forces (pression, viscosité, hourglass)
-  // 计算完整的节点力（压力 + 黏性 + hourglass）
-  CalcVolumeForceForElems(domain);
+   /* 
+      Calcul des forces de volume (stress + hourglass)
+      调用体积力（应力 + 沙漏控制）的计算
+   */
+   CalcVolumeForceForElems(domain);
 
 #if USE_MPI
+   /*
+      Préparation des champs à envoyer：fx, fy, fz
+      准备要发送的力场数据：fx/fy/fz
+   */
+   Domain_member fieldData[3];
+   fieldData[0] = &Domain::fx;
+   fieldData[1] = &Domain::fy;
+   fieldData[2] = &Domain::fz;
 
-  // fieldData : pointeurs vers les champs fx, fy, fz du domaine
-  // fieldData：指向 fx, fy, fz 成员函数的指针（用于通信）
-  Domain_member fieldData[3];
-  fieldData[0] = &Domain::fx;
-  fieldData[1] = &Domain::fy;
-  fieldData[2] = &Domain::fz;
+   /* 
+      Envoi des données vers les voisins MPI.
+      向 MPI 邻居发送节点力（接口保留）
+   */
+   CommSend(domain, MSG_COMM_SBN, 3, fieldData,
+            domain.sizeX() + 1,
+            domain.sizeY() + 1,
+            domain.sizeZ() + 1,
+            true, false);
 
-  // Envoi des valeurs fantômes
-  // 发送 Ghost 区节点力
-  CommSend(domain, MSG_COMM_SBN, 3,
-           fieldData,
-           domain.sizeX() + 1,
-           domain.sizeY() + 1,
-           domain.sizeZ() + 1,
-           true, false);
-
-  // Synchronisation des buffers nodaux
-  // 完成边界节点力的同步
-  CommSBN(domain, 3, fieldData);
-
+   /* 
+      Fusion des forces fantômes dans les points frontières.
+      合并 ghost 节点的力
+   */
+   CommSBN(domain, 3, fieldData);
 #endif
 }
 
-// Fonction : CalcAccelerationForNodes
-// 通过 fx/mass 等式计算三个方向的加速度
-static inline void CalcAccelerationForNodes(Domain &domain, Index_t numNode) {
+/*
+   Calcule l’accélération des nœuds à partir des forces nodales.
+   根据节点力计算节点加速度（xdd, ydd, zdd）
+*/
 
-  // 并行遍历所有节点，直接写入 domain.xdd / ydd / zdd
-  Kokkos::parallel_for("CalcAccelerationForNodes", numNode,
-                       KOKKOS_LAMBDA(const int i) {
-    // 加速度 = 力 / 质量
-    domain.xdd(i) = domain.fx(i) / domain.nodalMass(i);
-    domain.ydd(i) = domain.fy(i) / domain.nodalMass(i);
-    domain.zdd(i) = domain.fz(i) / domain.nodalMass(i);
-  });
+void CalcAccelerationForNodes(Domain &domain, Index_t numNode)
+{
+   // ① 先把 Domain 里的 View 拿出来（普通 C++ 语句）
+   auto xdd = domain.xdd_view();
+   auto ydd = domain.ydd_view();
+   auto zdd = domain.zdd_view();
+
+   auto fx  = domain.fx_view();
+   auto fy  = domain.fy_view();
+   auto fz  = domain.fz_view();
+
+   auto nodalMass = domain.nodalMass_view();
+
+   // ② 再调用 Kokkos::parallel_for
+   Kokkos::parallel_for(
+      "CalcAccelerationForNodes",
+      Kokkos::RangePolicy<>(0, numNode),
+      KOKKOS_LAMBDA(const Index_t i)
+      {
+         xdd(i) = fx(i) / nodalMass(i);
+         ydd(i) = fy(i) / nodalMass(i);
+         zdd(i) = fz(i) / nodalMass(i);
+      }
+   );
 }
 
 
-// Fonction : ApplyAccelerationBoundaryConditionsForNodes
-// 对称边界的节点加速度必须设为 0
-static inline void ApplyAccelerationBoundaryConditionsForNodes(Domain &domain) {
+/*
+   Applique les conditions limites d’accélération sur les nœuds
+   对节点应用加速度边界条件（固定方向加速度 = 0）
+*/
+void ApplyAccelerationBoundaryConditionsForNodes(Domain& domain)
+{
+   auto xdd = domain.xdd_view();
+   auto ydd = domain.ydd_view();
+   auto zdd = domain.zdd_view();
 
-  Index_t size = domain.sizeX();
-  Index_t numNodeBC = (size + 1) * (size + 1); 
-  // 一个面 (X=0, Y=0 或 Z=0 面) 上的节点数量
+   auto symmX = domain.symmX_view();
+   auto symmY = domain.symmY_view();
+   auto symmZ = domain.symmZ_view();
 
-  // 对称 X 边界：所有在 X=0 面上的节点，其 x 方向加速度 = 0
-  if (!domain.symmXempty() != 0) {
-    Kokkos::parallel_for("ApplyAccelerationBoundaryConditionsForNodes A",
-                         numNodeBC, KOKKOS_LAMBDA(const int i) {
-      domain.xdd(domain.symmX(i)) = Real_t(0.0);
-    });
-  }
+   Index_t size = domain.sizeX();
+   Index_t numNodeBC = (size + 1) * (size + 1);
 
-  // 对称边界对应的节点加速度被强制为 0
-  if (!domain.symmYempty() != 0) {
-    Kokkos::parallel_for("ApplyAccelerationBoundaryConditionsForNodes B",
-                         numNodeBC, KOKKOS_LAMBDA(const int i) {
-      domain.ydd(domain.symmY(i)) = Real_t(0.0);
-    });
-  }
+   /* 
+      BC en X : si la liste n’est pas vide, mettre xdd = 0
+      X方向边界条件：如果边界列表非空，则将所有这些节点的 xdd 设为 0
+   */
+   if (!domain.symmXempty()) {
+      Kokkos::parallel_for(
+         "BC_X",
+         Kokkos::RangePolicy<>(0, numNodeBC),
+         KOKKOS_LAMBDA(const Index_t i)
+      {
+         xdd(domain.symmX(i)) = Real_t(0.0);
+      });
+   }
 
-  // 如果 Z 对称边界非空，则置零所有 zdd
-  if (!domain.symmZempty() != 0) {
-    Kokkos::parallel_for("ApplyAccelerationBoundaryConditionsForNodes C",
-                         numNodeBC, KOKKOS_LAMBDA(const int i) {
-      domain.zdd(domain.symmZ(i)) = Real_t(0.0);
-    });
-  }
+   /*
+      BC en Y : mettre ydd = 0 sur la frontière Y
+      Y方向边界条件：将 Y 边界节点的 ydd 设为 0
+   */
+   if (!domain.symmYempty()) {
+      Kokkos::parallel_for(
+         "BC_Y",
+         Kokkos::RangePolicy<>(0, numNodeBC),
+         KOKKOS_LAMBDA(const Index_t i)
+      {
+         ydd(domain.symmY(i)) = Real_t(0.0);
+      });
+   }
+
+   /*
+      BC en Z : mettre zdd = 0 sur la frontière Z
+      Z方向边界条件：将 Z 边界节点的 zdd 设为 0
+   */
+   if (!domain.symmZempty()) {
+      Kokkos::parallel_for(
+         "BC_Z",
+         Kokkos::RangePolicy<>(0, numNodeBC),
+         KOKKOS_LAMBDA(const Index_t i)
+      {
+         zdd(domain.symmZ(i)) = Real_t(0.0);
+      });
+   }
 }
 
+/*
+   Met à jour la vitesse des nœuds en utilisant l’accélération.
+   根据加速度更新节点速度（xd, yd, zd）
+   Applique également un seuil u_cut：若速度幅度太小则归零。
+*/
+void CalcVelocityForNodes(Domain &domain,
+                          const Real_t dt,
+                          const Real_t u_cut,
+                          Index_t numNode)
+{
+   Kokkos::parallel_for(
+      "CalcVelocityForNodes",
+      Kokkos::RangePolicy<>(0, numNode),
+      KOKKOS_LAMBDA(const Index_t i)
+   {
+      /* mise à jour de la vitesse x : vx_new = vx_old + ax * dt
+         更新 x 方向速度：xd = xd + xdd * dt
+      */
+      Real_t xdtmp = domain.xd(i) + domain.xdd(i) * dt;
 
-// Fonction : CalcVelocityForNodes
-// 速度更新公式 xd += xdd * dt；并应用速度截断 u_cut
-static inline void CalcVelocityForNodes(Domain &domain, const Real_t dt,
-                                        const Real_t u_cut, Index_t numNode) {
+      // seuil u_cut : si trop petit, mettre à zéro
+      // 速度绝对值若小于 u_cut，则认为为 0（避免震荡）
+      if (FABS(xdtmp) < u_cut) {
+         xdtmp = Real_t(0.0);
+      }
+      domain.xd(i) = xdtmp;
 
-  // 每个节点独立更新速度，因此非常适合 Kokkos 并行
-  Kokkos::parallel_for("CalcVelocityForNodes", numNode,
-                       KOKKOS_LAMBDA(const int i) {
+      /* idem pour la vitesse y */
+      Real_t ydtmp = domain.yd(i) + domain.ydd(i) * dt;
+      if (FABS(ydtmp) < u_cut) {
+         ydtmp = Real_t(0.0);
+      }
+      domain.yd(i) = ydtmp;
 
-    Real_t xdtmp, ydtmp, zdtmp;
-
-    // vx(t+dt) = vx(t) + ax * dt
-    xdtmp = domain.xd(i) + domain.xdd(i) * dt;
-
-    // 如果速度很小（低于 u_cut），认为其为 0，以抑制数值噪声
-    if (FABS(xdtmp) < u_cut)
-      xdtmp = Real_t(0.0);
-    domain.xd(i) = xdtmp;
-
-    // y 方向速度更新
-    ydtmp = domain.yd(i) + domain.ydd(i) * dt;
-    if (FABS(ydtmp) < u_cut)
-      ydtmp = Real_t(0.0);
-    domain.yd(i) = ydtmp;
-
-    // z 方向速度更新
-    zdtmp = domain.zd(i) + domain.zdd(i) * dt;
-    if (FABS(zdtmp) < u_cut)
-      zdtmp = Real_t(0.0);
-    domain.zd(i) = zdtmp;
-  });
+      /* idem pour la vitesse z */
+      Real_t zdtmp = domain.zd(i) + domain.zdd(i) * dt;
+      if (FABS(zdtmp) < u_cut) {
+         zdtmp = Real_t(0.0);
+      }
+      domain.zd(i) = zdtmp;
+   });
 }
 
-// Fonction : CalcPositionForNodes
-// x(t+dt) = x(t) + v(t)*dt，三个方向独立更新
-static inline void CalcPositionForNodes(Domain &domain, const Real_t dt,
-                                        Index_t numNode) {
+/*
+   Met à jour la position des nœuds en utilisant la vitesse.
+   根据节点速度更新节点位置（x, y, z）
+*/
+void CalcPositionForNodes(Domain &domain,
+                          const Real_t dt,
+                          Index_t numNode)
+{
+   Kokkos::parallel_for(
+      "CalcPositionForNodes",
+      Kokkos::RangePolicy<>(0, numNode),
+      KOKKOS_LAMBDA(const Index_t i)
+   {
+      /* x_new = x_old + vx * dt
+         根据速度更新 x 坐标
+      */
+      domain.x(i) += domain.xd(i) * dt;
 
-  // Kokkos 并行地更新所有节点的位置
-  Kokkos::parallel_for("CalcPositionForNodes", numNode,
-                       KOKKOS_LAMBDA(const int i) {
-    domain.x(i) += domain.xd(i) * dt;   // 法语：更新 X 坐标
-    domain.y(i) += domain.yd(i) * dt;   // 中文：更新 Y 坐标
-    domain.z(i) += domain.zd(i) * dt;   // 中文：更新 Z 坐标
-  });
+      /* y_new = y_old + vy * dt
+         更新 y 坐标
+      */
+      domain.y(i) += domain.yd(i) * dt;
+
+      /* z_new = z_old + vz * dt
+         更新 z 坐标
+      */
+      domain.z(i) += domain.zd(i) * dt;
+   });
 }
 
-
-// Fonction : LagrangeNodal 
-// 这是显式 Lagrange 时间推进中负责处理节点物理量的部分
-static inline void LagrangeNodal(Domain &domain) {
-
+/*
+   Effectue l’étape nodale lagrangienne : force → accélération → vitesse → position.
+   执行拉格朗日节点更新步骤：力 → 加速度 → 速度 → 位置
+*/
+KOKKOS_INLINE_FUNCTION
+void LagrangeNodal(Domain& domain)
+{
 #ifdef SEDOV_SYNC_POS_VEL_EARLY
-  // MPI 情况下，如果启用了“早期同步”，需要准备要同步的字段
-  Domain_member fieldData[6];
+   Domain_member fieldData[6] ;
 #endif
 
-  const Real_t delt = domain.deltatime();  // 法语：本步长度 Δt
-  Real_t u_cut = domain.u_cut();           // 法语：速度截断阈值
+   const Real_t delt = domain.deltatime() ;
+   Real_t u_cut = domain.u_cut() ;
 
-  // 计算所有节点的力（包括应力、人工粘度、体积力等）
-  CalcForceForNodes(domain);
+   /* 
+      Les conditions limites sont évaluées au début : d'abord force puis accélération.
+      边界条件在时间步开始时应用：先计算力，再计算加速度
+   */
+   CalcForceForNodes(domain);
 
 #if USE_MPI
 #ifdef SEDOV_SYNC_POS_VEL_EARLY
-  // 接收来自相邻 MPI 进程的 x,y,z,xd,yd,zd（同步）
-  CommRecv(domain, MSG_SYNC_POS_VEL, 6,
-           domain.sizeX() + 1, domain.sizeY() + 1, domain.sizeZ() + 1,
-           false, false);
+   CommRecv(domain, MSG_SYNC_POS_VEL, 6,
+            domain.sizeX()+1, domain.sizeY()+1, domain.sizeZ()+1,
+            false, false);
 #endif
 #endif
 
-  // 更新 xdd, ydd, zdd
-  CalcAccelerationForNodes(domain, domain.numNode());
+   /* Calcul de l’accélération nodale
+      计算节点加速度
+   */
+   CalcAccelerationForNodes(domain, domain.numNode());
 
-  // 施加加速度边界条件，如对称边界（某些方向加速度必须为 0）
-  ApplyAccelerationBoundaryConditionsForNodes(domain);
+   /* Application des conditions limites d’accélération
+      应用加速度边界条件
+   */
+   ApplyAccelerationBoundaryConditionsForNodes(domain);
 
-  // xd += xdd*dt，并使用 u_cut 截断速度
-  CalcVelocityForNodes(domain, delt, u_cut, domain.numNode());
+   /* Mise à jour de la vitesse nodale
+      更新节点速度
+   */
+   CalcVelocityForNodes(domain, delt, u_cut, domain.numNode());
 
-  // 根据新速度推进节点位置
-  CalcPositionForNodes(domain, delt, domain.numNode());
+   /* Mise à jour de la position nodale
+      更新节点位置
+   */
+   CalcPositionForNodes(domain, delt, domain.numNode());
 
 #if USE_MPI
 #ifdef SEDOV_SYNC_POS_VEL_EARLY
-  // 设置要发送给其他 MPI 进程的字段
-  fieldData[0] = &Domain::x;
-  fieldData[1] = &Domain::y;
-  fieldData[2] = &Domain::z;
-  fieldData[3] = &Domain::xd;
-  fieldData[4] = &Domain::yd;
-  fieldData[5] = &Domain::zd;
+   fieldData[0] = &Domain::x ;
+   fieldData[1] = &Domain::y ;
+   fieldData[2] = &Domain::z ;
+   fieldData[3] = &Domain::xd ;
+   fieldData[4] = &Domain::yd ;
+   fieldData[5] = &Domain::zd ;
 
-  // 发送 x,y,z,xd,yd,zd 到邻域进程
-  CommSend(domain, MSG_SYNC_POS_VEL, 6, fieldData,
-           domain.sizeX() + 1, domain.sizeY() + 1, domain.sizeZ() + 1,
-           false, false);
-
-  // 执行实际的同步
-  CommSyncPosVel(domain);
+   CommSend(domain, MSG_SYNC_POS_VEL, 6, fieldData,
+            domain.sizeX()+1, domain.sizeY()+1, domain.sizeZ()+1,
+            false, false);
+   CommSyncPosVel(domain);
 #endif
 #endif
-
-  return;
 }
 
-// Fonction : CalcElemVolume
-// 用六面体体积分解公式计算体积，是 LULESH 的标准实现。
+/*
+   Calcule le volume d’un élément hexaédrique à 8 nœuds.
+   计算 8 节点六面体单元的体积
+*/
 KOKKOS_INLINE_FUNCTION
 Real_t CalcElemVolume(
     const Real_t x0, const Real_t x1, const Real_t x2, const Real_t x3,
@@ -1516,2276 +1340,2194 @@ Real_t CalcElemVolume(
     const Real_t z0, const Real_t z1, const Real_t z2, const Real_t z3,
     const Real_t z4, const Real_t z5, const Real_t z6, const Real_t z7)
 {
-  // LULESH 体积计算最终需要乘 1/12
-  Real_t twelveth = Real_t(1.0) / Real_t(12.0);
-
-  // 以下计算各种边向量（节点间的差）
-  Real_t dx61 = x6 - x1;
-  Real_t dy61 = y6 - y1;
-  Real_t dz61 = z6 - z1;
-
-  Real_t dx70 = x7 - x0;
-  Real_t dy70 = y7 - y0;
-  Real_t dz70 = z7 - z0;
-
-  Real_t dx63 = x6 - x3;
-  Real_t dy63 = y6 - y3;
-  Real_t dz63 = z6 - z3;
-
-  Real_t dx20 = x2 - x0;
-  Real_t dy20 = y2 - y0;
-  Real_t dz20 = z2 - z0;
-
-  Real_t dx50 = x5 - x0;
-  Real_t dy50 = y5 - y0;
-  Real_t dz50 = z5 - z0;
-
-  Real_t dx64 = x6 - x4;
-  Real_t dy64 = y6 - y4;
-  Real_t dz64 = z6 - z4;
-
-  Real_t dx31 = x3 - x1;
-  Real_t dy31 = y3 - y1;
-  Real_t dz31 = z3 - z1;
-
-  Real_t dx72 = x7 - x2;
-  Real_t dy72 = y7 - y2;
-  Real_t dz72 = z7 - z2;
-
-  Real_t dx43 = x4 - x3;
-  Real_t dy43 = y4 - y3;
-  Real_t dz43 = z4 - z3;
-
-  Real_t dx57 = x5 - x7;
-  Real_t dy57 = y5 - y7;
-  Real_t dz57 = z5 - z7;
-
-  Real_t dx14 = x1 - x4;
-  Real_t dy14 = y1 - y4;
-  Real_t dz14 = z1 - z4;
-
-  Real_t dx25 = x2 - x5;
-  Real_t dy25 = y2 - y5;
-  Real_t dz25 = z2 - z5;
-
-  // TRIPLE_PRODUCT(a,b,c) = a · (b × c)
-#define TRIPLE_PRODUCT(x1, y1, z1, x2, y2, z2, x3, y3, z3) \
-  ((x1) * ((y2) * (z3) - (z2) * (y3)) +                     \
-   (x2) * ((z1) * (y3) - (y1) * (z3)) +                     \
-   (x3) * ((y1) * (z2) - (z1) * (y2)))
-
-  // 体积的核心公式（来自六面体分解成三个平行六面体）
-  Real_t volume =
-      TRIPLE_PRODUCT(dx31 + dx72, dx63, dx20,
-                     dy31 + dy72, dy63, dy20,
-                     dz31 + dz72, dz63, dz20)
-    +
-      TRIPLE_PRODUCT(dx43 + dx57, dx64, dx70,
-                     dy43 + dy57, dy64, dy70,
-                     dz43 + dz57, dz64, dz70)
-    +
-      TRIPLE_PRODUCT(dx14 + dx25, dx61, dx50,
-                     dy14 + dy25, dy61, dy50,
-                     dz14 + dz25, dz61, dz50);
-
-#undef TRIPLE_PRODUCT
-
-  // 最终体积乘以 1/12
-  volume *= twelveth;
-
-  return volume;
-}
-
-// 调用坐标数组版本，转发到 24 参数版本
-// Fonction d’appoint qui redirige vers la version à 24 arguments.
-Real_t CalcElemVolume(const Real_t x[8], const Real_t y[8], const Real_t z[8]) {
-  // 按节点顺序展开，并调用 CalcElemVolume(...) 主版本
-  // Déroule les coordonnées nodales et appelle la version principale.
-  return CalcElemVolume(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7],
-                        y[0], y[1], y[2], y[3], y[4], y[5], y[6], y[7],
-                        z[0], z[1], z[2], z[3], z[4], z[5], z[6], z[7]);
-}
-
-// 计算四边形面的“面积度量”，用于单元特征长度计算
-// Calcule une mesure de surface d’une face quadrilatérale, utilisée pour la longueur caractéristique.
-static inline Real_t AreaFace(const Real_t x0, const Real_t x1, const Real_t x2,
-                              const Real_t x3, const Real_t y0, const Real_t y1,
-                              const Real_t y2, const Real_t y3, const Real_t z0,
-                              const Real_t z1, const Real_t z2,
-                              const Real_t z3) {
-  // fx = (x2 - x0) - (x3 - x1)
-  Real_t fx = (x2 - x0) - (x3 - x1);
-
-  // fy 与 fz 同样是“反对角向量差”
-  // fy et fz représentent aussi une différence entre diagonales.
-  Real_t fy = (y2 - y0) - (y3 - y1);
-  Real_t fz = (z2 - z0) - (z3 - z1);
-
-  // gx = (x2 - x0) + (x3 - x1)
-  // gx = (x2 - x0) + (x3 - x1)
-  Real_t gx = (x2 - x0) + (x3 - x1);
-
-  // gy、gz 为“对角和”
-  // gy et gz sont les sommes diagonales.
-  Real_t gy = (y2 - y0) + (y3 - y1);
-  Real_t gz = (z2 - z0) + (z3 - z1);
-
-  // 面积度量 = |f|² |g|² − (f·g)²
-  // mesure de surface = |f|² |g|² − (f·g)²
-  Real_t area =
-      (fx * fx + fy * fy + fz * fz) * (gx * gx + gy * gy + gz * gz) -
-      (fx * gx + fy * gy + fz * gz) * (fx * gx + fy * gy + fz * gz);
-
-  // 返回面积度量（注意，不是实际面积）
-  // Retourne la mesure (ce n’est pas l’aire réelle).
-  return area;
-}
-
-// 计算单元的特征长度（基于最大面面积度量）
-// Calcule la longueur caractéristique de l’élément (basée sur la plus grande mesure de face).
-static inline Real_t
-CalcElemCharacteristicLength(const Real_t x[8], const Real_t y[8],
-                             const Real_t z[8], const Real_t volume) {
-  // a 为当前面面积度量；charLength 保存最大值
-  // a est la mesure de face ; charLength conserve la valeur maximale.
-  Real_t a, charLength = Real_t(0.0);
-
-  // Face 0–1–2–3
-  // 检查第 1 个面
-  // Première face.
-  a = AreaFace(x[0], x[1], x[2], x[3], y[0], y[1], y[2], y[3],
-               z[0], z[1], z[2], z[3]);
-  charLength = std::max(a, charLength);
-
-  a = AreaFace(x[4], x[5], x[6], x[7], y[4], y[5], y[6], y[7],
-               z[4], z[5], z[6], z[7]);
-  charLength = std::max(a, charLength);
-
-  a = AreaFace(x[0], x[1], x[5], x[4], y[0], y[1], y[5], y[4],
-               z[0], z[1], z[5], z[4]);
-  charLength = std::max(a, charLength);
-
-  a = AreaFace(x[1], x[2], x[6], x[5], y[1], y[2], y[6], y[5],
-               z[1], z[2], z[6], z[5]);
-  charLength = std::max(a, charLength);
-
-  a = AreaFace(x[2], x[3], x[7], x[6], y[2], y[3], y[7], y[6],
-               z[2], z[3], z[7], z[6]);
-  charLength = std::max(a, charLength);
-
-  a = AreaFace(x[3], x[0], x[4], x[7], y[3], y[0], y[4], y[7],
-               z[3], z[0], z[4], z[7]);
-  charLength = std::max(a, charLength);
-
-  // 最终特征长度 = 4 * 体积 / sqrt(最大面积度量)
-  // Longueur caractéristique finale = 4 * volume / sqrt(max(face)).
-  charLength = Real_t(4.0) * volume / SQRT(charLength);
-
-  return charLength;
-}
-
-// 计算单元速度梯度（∂vx/∂x, ∂vy/∂y 等）
-// Calcule le gradient de vitesse dans l’élément.
-static inline void
-CalcElemVelocityGradient(const Real_t *const xvel, const Real_t *const yvel,
-                         const Real_t *const zvel, const Real_t b[][8],
-                         const Real_t detJ, Real_t *const d) {
-
-  // Jacobian 行列式的倒数
-  // Inverse du déterminant du jacobien.
-  const Real_t inv_detJ = Real_t(1.0) / detJ;
-
-  // 临时变量，用于存储中间梯度项
-  // Variables temporaires pour les gradients intermédiaires.
-  Real_t dyddx, dxddy, dzddx, dxddz, dzddy, dyddz;
-
-  // b 矩阵的三个分量 (形函数导数)
-  // Composantes du tableau b (dérivées des fonctions de forme).
-  const Real_t *const pfx = b[0];
-  const Real_t *const pfy = b[1];
-  const Real_t *const pfz = b[2];
-
-  // d[0] = ∂vx/∂x
-  // d[0] 表示速度分量 x 对 x 的偏导
-  // d[0] représente ∂vx/∂x.
-  d[0] = inv_detJ * (pfx[0] * (xvel[0] - xvel[6]) +
-                     pfx[1] * (xvel[1] - xvel[7]) +
-                     pfx[2] * (xvel[2] - xvel[4]) +
-                     pfx[3] * (xvel[3] - xvel[5]));
-
-  d[1] = inv_detJ * (pfy[0] * (yvel[0] - yvel[6]) +
-                     pfy[1] * (yvel[1] - yvel[7]) +
-                     pfy[2] * (yvel[2] - yvel[4]) +
-                     pfy[3] * (yvel[3] - yvel[5]));
-
-  d[2] = inv_detJ * (pfz[0] * (zvel[0] - zvel[6]) +
-                     pfz[1] * (zvel[1] - zvel[7]) +
-                     pfz[2] * (zvel[2] - zvel[4]) +
-                     pfz[3] * (zvel[3] - zvel[5]));
-
-  // 混合导数部分 
-  // 以下为 y 对 x、x 对 y、z 对 x 等的偏导
-  // Les dérivées croisées ci-dessous.
-
-  dyddx = inv_detJ * (pfx[0] * (yvel[0] - yvel[6]) +
-                      pfx[1] * (yvel[1] - yvel[7]) +
-                      pfx[2] * (yvel[2] - yvel[4]) +
-                      pfx[3] * (yvel[3] - yvel[5]));
-
-  dxddy = inv_detJ * (pfy[0] * (xvel[0] - xvel[6]) +
-                      pfy[1] * (xvel[1] - xvel[7]) +
-                      pfy[2] * (xvel[2] - xvel[4]) +
-                      pfy[3] * (xvel[3] - xvel[5]));
-
-  dzddx = inv_detJ * (pfx[0] * (zvel[0] - zvel[6]) +
-                      pfx[1] * (zvel[1] - zvel[7]) +
-                      pfx[2] * (zvel[2] - zvel[4]) +
-                      pfx[3] * (zvel[3] - zvel[5]));
-
-  dxddz = inv_detJ * (pfz[0] * (xvel[0] - xvel[6]) +
-                      pfz[1] * (xvel[1] - xvel[7]) +
-                      pfz[2] * (xvel[2] - xvel[4]) +
-                      pfz[3] * (xvel[3] - xvel[5]));
-
-  dzddy = inv_detJ * (pfy[0] * (zvel[0] - zvel[6]) +
-                      pfy[1] * (zvel[1] - zvel[7]) +
-                      pfy[2] * (zvel[2] - zvel[4]) +
-                      pfy[3] * (zvel[3] - zvel[5]));
-
-  dyddz = inv_detJ * (pfz[0] * (yvel[0] - yvel[6]) +
-                      pfz[1] * (yvel[1] - yvel[7]) +
-                      pfz[2] * (yvel[2] - yvel[4]) +
-                      pfz[3] * (yvel[3] - yvel[5]));
-
-  // 构造对称部分
-  // d[5], d[4], d[3] 是三维速度梯度张量的对称项
-  // d[5], d[4], d[3] sont les termes symétriques du tenseur de gradient.
-  d[5] = Real_t(.5) * (dxddy + dyddx);  // ∂vx/∂y + ∂vy/∂x
-  d[4] = Real_t(.5) * (dxddz + dzddx);  // ∂vx/∂z + ∂vz/∂x
-  d[3] = Real_t(.5) * (dzddy + dyddz);  // ∂vy/∂z + ∂vz/∂y
-}
-
-// 计算单元运动学量：体积变化、形函数导数、速度梯度
-// Calcule les grandeurs cinématiques des éléments : variation de volume, dérivées des fonctions de forme et gradient de vitesse.
-void CalcKinematicsForElems(Domain &domain, Real_t deltaTime, Index_t numElem) {
-
-  // 对每个单元执行运动学更新
-  // Exécute la mise à jour cinématique pour chaque élément.
-  Kokkos::parallel_for("CalcKinematicsForElems", numElem,
-                       KOKKOS_LAMBDA(const int k) {
-
-    // 局部形函数导数矩阵 B（3×8）  
-    // Matrice locale des dérivées de forme B (3×8).
-    Real_t B[3][8];
-
-    // 局部速度梯度分量 D（长度 6）
-    // Composantes locales du gradient de vitesse D (taille 6).
-    Real_t D[6];
-
-    // 单元内节点坐标
-    // Coordonnées nodales dans l’élément.
-    Real_t x_local[8];
-    Real_t y_local[8];
-    Real_t z_local[8];
-
-    // 单元内节点速度
-    // Vitesses nodales locales.
-    Real_t xd_local[8];
-    Real_t yd_local[8];
-    Real_t zd_local[8];
-
-    // Jacobian 行列式
-    // Déterminant du jacobien.
-    Real_t detJ = Real_t(0.0);
-
-    // 单元体积与相对体积
-    // Volume de l’élément et volume relatif.
-    Real_t volume;
-    Real_t relativeVolume;
-
-    // 单元到全局节点编号映射
-    // Mappage élément→nœud global.
-    const Index_t *const elemToNode = domain.nodelist(k);
-
-    // 收集本单元的 8 个节点坐标
-    // Récupère les coordonnées des 8 nœuds de l’élément.
-    CollectDomainNodesToElemNodes(domain, elemToNode, x_local, y_local, z_local);
-
-    // 计算单元体积
-    // Calcule le volume de l’élément.
-    volume = CalcElemVolume(x_local, y_local, z_local);
-
-    // 计算体积比 v_new = volume / volo
-    // Calcule le volume relatif v_new = volume / volo.
-    relativeVolume = volume / domain.volo(k);
-    domain.vnew(k) = relativeVolume;
-
-    // 记录体积增量 delv = v_new - v_old
-    // Stocke la variation volumique delv = v_new - v_old.
-    domain.delv(k) = relativeVolume - domain.v(k);
-
-    // 计算单元的特征长度
-    // Calcule la longueur caractéristique de l’élément.
-    domain.arealg(k) =
-        CalcElemCharacteristicLength(x_local, y_local, z_local, volume);
-
-    // 读取节点速度到局部数组
-    // Charge les vitesses nodales dans les tableaux locaux.
-    for (Index_t lnode = 0; lnode < 8; ++lnode) {
-      Index_t gnode = elemToNode[lnode];
-      xd_local[lnode] = domain.xd(gnode);
-      yd_local[lnode] = domain.yd(gnode);
-      zd_local[lnode] = domain.zd(gnode);
-    }
-
-    // 半步时间步长 dt/2
-    // Pas de temps demi‐étape dt/2.
-    Real_t dt2 = Real_t(0.5) * deltaTime;
-
-    // 退回半步位置（中心差分方法需要）
-    // Recul d’une demi‐étape temporelle (nécessaire au schéma en différences centrées).
-    for (Index_t j = 0; j < 8; ++j) {
-      x_local[j] -= dt2 * xd_local[j];
-      y_local[j] -= dt2 * yd_local[j];
-      z_local[j] -= dt2 * zd_local[j];
-    }
-
-    // 基于位置计算形函数导数 B 与 Jacobian detJ
-    // Calcule les dérivées des fonctions de forme B et le déterminant detJ.
-    CalcElemShapeFunctionDerivatives(x_local, y_local, z_local, B, &detJ);
-
-    // 计算单元速度梯度 D（包含 ∂vx/∂x,… 及对称项）
-    // Calcule le gradient de vitesse D (incluant ∂vx/∂x, … et les termes symétriques).
-    CalcElemVelocityGradient(xd_local, yd_local, zd_local, B, detJ, D);
-
-    // 将速度梯度写回 domain
-    // Stocke le gradient de vitesse dans le domain.
-    domain.dxx(k) = D[0];
-    domain.dyy(k) = D[1];
-    domain.dzz(k) = D[2];
-  });
-}
-
-// 计算拉格朗日单元量（体积变化 + 无量纲速度散度）
-// Calcule les grandeurs lagrangiennes des éléments (variation volumique + divergence de vitesse).
-static inline void CalcLagrangeElements(Domain &domain) {
-  Index_t numElem = domain.numElem();  
-  // 单元数量
-  // Nombre d’éléments.
-
-  if (numElem > 0) {
-    const Real_t deltatime = domain.deltatime();
-    // 时间步长
-    // Pas de temps.
-
-    domain.AllocateStrains(numElem);
-    // 分配存储应变的数组
-    // Alloue les tableaux nécessaires pour les déformations.
-
-    CalcKinematicsForElems(domain, deltatime, numElem);
-    // 计算体积、体积变化、速度梯度
-    // Calcule volume, variation volumique et gradient de vitesse.
-
-    Kokkos::parallel_for(numElem, [=](const int k) {
-      Real_t vdov = domain.dxx(k) + domain.dyy(k) + domain.dzz(k);
-      // 速度散度（迹）
-      // Divergence de vitesse (trace du gradient).
-
-      Real_t vdovthird = vdov / Real_t(3.0);
-      // 平均散度（各方向扣除同样量）
-      // Divergence moyenne (soustraite également dans chaque direction).
-
-      domain.vdov(k) = vdov;
-      // 存储散度
-      // Stocke la divergence.
-
-      domain.dxx(k) -= vdovthird;
-      domain.dyy(k) -= vdovthird;
-      domain.dzz(k) -= vdovthird;
-      // 去除体积部分得到纯形变梯度
-      // Enlève la partie volumique pour obtenir la déformation pure.
-
-      if (domain.vnew(k) <= Real_t(0.0)) {
-        // 检查是否出现单元体积崩塌
-        // Vérifie l’effondrement volumique de l’élément.
-      #if USE_MPI
-        MPI_Abort(MPI_COMM_WORLD, VolumeError);
-      #else
-        exit(VolumeError);
-      #endif
-      }
-    });
-
-    domain.DeallocateStrains();
-    // 释放应变内存
-    // Libère la mémoire associée aux déformations.
-  }
-}
-
-// 计算 Q 单调性限制器所需的梯度（对应 X, Y, Z 三个方向）
-// Calcule les gradients nécessaires pour le limiteur monotone Q (directions X, Y, Z).
-static inline void CalcMonotonicQGradientsForElems(Domain &domain) {
-  Index_t numElem = domain.numElem();
-  // 单元数量
-  // Nombre d’éléments.
-
-  Kokkos::parallel_for("CalcMonotonicQGradientsForElems", numElem,
-                       KOKKOS_LAMBDA(const int i) {
-
-    const Real_t ptiny = Real_t(1.e-36);
-    // 防止除零的小量
-    // Petite valeur pour éviter la division par zéro.
-
-    Real_t ax, ay, az;
-    Real_t dxv, dyv, dzv;
-
-    const Index_t *elemToNode = domain.nodelist(i);
-    // 单元到节点的映射
-    // Mappage élément → nœuds.
-
-    Index_t n0 = elemToNode[0];
-    Index_t n1 = elemToNode[1];
-    Index_t n2 = elemToNode[2];
-    Index_t n3 = elemToNode[3];
-    Index_t n4 = elemToNode[4];
-    Index_t n5 = elemToNode[5];
-    Index_t n6 = elemToNode[6];
-    Index_t n7 = elemToNode[7];
-    // 八个节点的编号
-    // Indices des huit nœuds.
-
-    // 读取节点坐标
-    // Charge les coordonnées nodales.
-    Real_t x0 = domain.x(n0); Real_t x1 = domain.x(n1);
-    Real_t x2 = domain.x(n2); Real_t x3 = domain.x(n3);
-    Real_t x4 = domain.x(n4); Real_t x5 = domain.x(n5);
-    Real_t x6 = domain.x(n6); Real_t x7 = domain.x(n7);
-
-    Real_t y0 = domain.y(n0); Real_t y1 = domain.y(n1);
-    Real_t y2 = domain.y(n2); Real_t y3 = domain.y(n3);
-    Real_t y4 = domain.y(n4); Real_t y5 = domain.y(n5);
-    Real_t y6 = domain.y(n6); Real_t y7 = domain.y(n7);
-
-    Real_t z0 = domain.z(n0); Real_t z1 = domain.z(n1);
-    Real_t z2 = domain.z(n2); Real_t z3 = domain.z(n3);
-    Real_t z4 = domain.z(n4); Real_t z5 = domain.z(n5);
-    Real_t z6 = domain.z(n6); Real_t z7 = domain.z(n7);
-
-    // 读取节点速度
-    // Charge les vitesses nodales.
-    Real_t xv0 = domain.xd(n0); Real_t xv1 = domain.xd(n1);
-    Real_t xv2 = domain.xd(n2); Real_t xv3 = domain.xd(n3);
-    Real_t xv4 = domain.xd(n4); Real_t xv5 = domain.xd(n5);
-    Real_t xv6 = domain.xd(n6); Real_t xv7 = domain.xd(n7);
-
-    Real_t yv0 = domain.yd(n0); Real_t yv1 = domain.yd(n1);
-    Real_t yv2 = domain.yd(n2); Real_t yv3 = domain.yd(n3);
-    Real_t yv4 = domain.yd(n4); Real_t yv5 = domain.yd(n5);
-    Real_t yv6 = domain.yd(n6); Real_t yv7 = domain.yd(n7);
-
-    Real_t zv0 = domain.zd(n0); Real_t zv1 = domain.zd(n1);
-    Real_t zv2 = domain.zd(n2); Real_t zv3 = domain.zd(n3);
-    Real_t zv4 = domain.zd(n4); Real_t zv5 = domain.zd(n5);
-    Real_t zv6 = domain.zd(n6); Real_t zv7 = domain.zd(n7);
-
-    // 当前体积
-    // Volume actuel.
-    Real_t vol = domain.volo(i) * domain.vnew(i);
-
-    Real_t norm = Real_t(1.0) / (vol + ptiny);
-    // 标准化因子（方向向量正规化）
-    // Facteur de normalisation.
-
-    // 计算 zeta 方向几何向量
-    // Calcule les vecteurs géométriques pour la direction zeta
-    Real_t dxj = Real_t(-0.25) * ((x0 + x1 + x5 + x4) - (x3 + x2 + x6 + x7));
-    Real_t dyj = Real_t(-0.25) * ((y0 + y1 + y5 + y4) - (y3 + y2 + y6 + y7));
-    Real_t dzj = Real_t(-0.25) * ((z0 + z1 + z5 + z4) - (z3 + z2 + z6 + z7));
-
-    Real_t dxi = Real_t(0.25) * ((x1 + x2 + x6 + x5) - (x0 + x3 + x7 + x4));
-    Real_t dyi = Real_t(0.25) * ((y1 + y2 + y6 + y5) - (y0 + y3 + y7 + y4));
-    Real_t dzi = Real_t(0.25) * ((z1 + z2 + z6 + z5) - (z0 + z3 + z7 + z4));
-
-    Real_t dxk = Real_t(0.25) * ((x4 + x5 + x6 + x7) - (x0 + x1 + x2 + x3));
-    Real_t dyk = Real_t(0.25) * ((y4 + y5 + y6 + y7) - (y0 + y1 + y2 + y3));
-    Real_t dzk = Real_t(0.25) * ((z4 + z5 + z6 + z7) - (z0 + z1 + z2 + z3));
-
-    // 计算法向量 (ax, ay, az)
-    // Calcule le vecteur normal (ax, ay, az).
-    ax = dyi * dzj - dzi * dyj;
-    ay = dzi * dxj - dxi * dzj;
-    az = dxi * dyj - dyi * dxj;
-
-    // 计算 delx_zeta
-    // Calcule delx_zeta.
-    domain.delx_zeta(i) = vol / SQRT(ax * ax + ay * ay + az * az + ptiny);
-
-    ax *= norm; ay *= norm; az *= norm;
-    // 正规化
-    // Normalisation.
-
-    dxv = Real_t(0.25) * ((xv4 + xv5 + xv6 + xv7) - (xv0 + xv1 + xv2 + xv3));
-    dyv = Real_t(0.25) * ((yv4 + yv5 + yv6 + yv7) - (yv0 + yv1 + yv2 + yv3));
-    dzv = Real_t(0.25) * ((zv4 + zv5 + zv6 + zv7) - (zv0 + zv1 + zv2 + zv3));
-
-    domain.delv_zeta(i) = ax * dxv + ay * dyv + az * dzv;
-    // zeta 方向速度梯度
-    // Gradient de vitesse en direction zeta.
-
-    // xi 方向
-    ax = dyj * dzk - dzj * dyk;
-    ay = dzj * dxk - dxj * dzk;
-    az = dxj * dyk - dyj * dxk;
-
-    domain.delx_xi(i) = vol / SQRT(ax * ax + ay * ay + az * az + ptiny);
-
-    ax *= norm; ay *= norm; az *= norm;
-
-    dxv = Real_t(0.25) * ((xv1 + xv2 + xv6 + xv5) - (xv0 + xv3 + xv7 + xv4));
-    dyv = Real_t(0.25) * ((yv1 + yv2 + yv6 + yv5) - (yv0 + yv3 + yv7 + yv4));
-    dzv = Real_t(0.25) * ((zv1 + zv2 + zv6 + zv5) - (zv0 + zv3 + zv7 + zv4));
-
-    domain.delv_xi(i) = ax * dxv + ay * dyv + az * dzv;
-
-    // eta 方向
-    ax = dyk * dzi - dzk * dyi;
-    ay = dzk * dxi - dxk * dzi;
-    az = dxk * dyi - dyk * dxi;
-
-    domain.delx_eta(i) = vol / SQRT(ax * ax + ay * ay + az * az + ptiny);
-
-    ax *= norm; ay *= norm; az *= norm;
-
-    dxv = Real_t(-0.25) * ((xv0 + xv1 + xv5 + xv4) - (xv3 + xv2 + xv6 + xv7));
-    dyv = Real_t(-0.25) * ((yv0 + yv1 + yv5 + yv4) - (yv3 + yv2 + yv6 + yv7));
-    dzv = Real_t(-0.25) * ((zv0 + zv1 + zv5 + zv4) - (zv3 + zv2 + zv6 + zv7));
-
-    domain.delv_eta(i) = ax * dxv + ay * dyv + az * dzv;
-  });
-}
-
-// 对区域 r 内的单元计算 Q 单调性限制器
-// Calcule le limiteur monotone Q pour les éléments de la région r.
-static inline void CalcMonotonicQRegionForElems(Domain &domain, Int_t r,
-                                                Real_t ptiny) {
-
-  Real_t monoq_limiter_mult = domain.monoq_limiter_mult();
-  // 单调性限制器倍率
-  // Multiplicateur du limiteur monotone.
-
-  Real_t monoq_max_slope = domain.monoq_max_slope();
-  // 最大允许斜率
-  // Pente maximale autorisée.
-
-  Real_t qlc_monoq = domain.qlc_monoq();
-  // 线性 Q 系数
-  // Coefficient Q linéaire.
-
-  Real_t qqc_monoq = domain.qqc_monoq();
-  // 二次 Q 系数
-  // Coefficient Q quadratique.
-
-  Kokkos::parallel_for("CalcMonotonicQRegionForElems", domain.regElemSize(r),
-                       KOKKOS_LAMBDA(const int i) {
-
-    Index_t ielem = domain.regElemlist(r, i);
-    // 取区域 r 中的第 i 个单元索引
-    // Récupère l’indice du i-ème élément de la région r.
-
-    Real_t qlin, qquad;
-    // 线性项与二次项
-    // Terme linéaire et terme quadratique.
-
-    Real_t phixi, phieta, phizeta;
-    // 三个方向的限制器系数
-    // Coefficients du limiteur dans les trois directions.
-
-    Int_t bcMask = domain.elemBC(ielem);
-    // 边界条件 mask
-    // Masque des conditions aux limites.
-
-    Real_t delvm = 0.0, delvp = 0.0;
-    // 左右方向的速度梯度增量
-    // Incréments du gradient de vitesse (gauche et droite).
-
-    Real_t norm = Real_t(1.) / (domain.delv_xi(ielem) + ptiny);
-    // 归一化因子，避免除零
-    // Facteur de normalisation, évite division par zéro.
-
-    // 处理 XI 方向的 delvm
-    // Traitement de delvm en direction XI
-    switch (bcMask & XI_M) {
-    case XI_M_COMM:
-    case 0:
-      delvm = domain.delv_xi(domain.lxim(ielem));
-      // 通信或内部节点：取邻居 delv_xi
-      // Élément interne ou en communication : utilise le voisin.
-      break;
-
-    case XI_M_SYMM:
-      delvm = domain.delv_xi(ielem);
-      // 对称边界：自身梯度为零，使用本单元
-      // Condition symétrique : dérivée nulle → utilise l’élément courant.
-      break;
-
-    case XI_M_FREE:
-      delvm = Real_t(0.0);
-      // 自由边界：梯度设为 0
-      // Condition libre : gradient nul.
-      break;
-
-    default:
-      fprintf(stderr, "Error in switch at %s line %d\n", __FILE__, __LINE__);
-      // 错误情况：打印错误信息（法语结构保持）  
-      // Cas invalide : imprime un message d’erreur.
-      delvm = 0;
-      break;
-    }
-
-    // 处理 XI 方向的 delvp
-    // Traitement de delvp en direction XI
-    switch (bcMask & XI_P) {
-    case XI_P_COMM:
-    case 0:
-      delvp = domain.delv_xi(domain.lxip(ielem));
-      // 内部或通信：取 +xi 方向邻居
-      // Interne/communication : voisin en direction +xi.
-      break;
-
-    case XI_P_SYMM:
-      delvp = domain.delv_xi(ielem);
-      // 对称：自身梯度
-      // Symétrique : utilise l’élément lui-même.
-      break;
-
-    case XI_P_FREE:
-      delvp = Real_t(0.0);
-      // 自由边界
-      // Frontière libre.
-      break;
-
-    default:
-      fprintf(stderr, "Error in switch at %s line %d\n", __FILE__, __LINE__);
-      // 错误情况
-      // Erreur.
-      delvp = 0;
-      break;
-    }
-
-    delvm = delvm * norm;
-    delvp = delvp * norm;
-    // 应用归一化
-    // Applique la normalisation.
-
-    phixi = Real_t(.5) * (delvm + delvp);
-    // 初始限制器值为平均梯度
-    // Valeur initiale = moyenne des gradients.
-
-    delvm *= monoq_limiter_mult;
-    delvp *= monoq_limiter_mult;
-    // 扩大限制器范围
-    // Amplifie la zone d’action du limiteur.
-
-    if (delvm < phixi) phixi = delvm;
-    if (delvp < phixi) phixi = delvp;
-    // phixi 不能比两侧最小梯度更大
-    // phixi ne doit pas dépasser le minimum des deux gradients.
-
-    if (phixi < Real_t(0.)) phixi = Real_t(0.);
-    // 限制器不能为负
-    // Le limiteur ne peut pas être négatif.
-
-    if (phixi > monoq_max_slope) phixi = monoq_max_slope;
-    // 限制器不能超过最大斜率
-    // Le limiteur ne peut pas dépasser la pente maximale.
-
-    // Ci-dessous traitement pour la direction ETA
-    norm = Real_t(1.) / (domain.delv_eta(ielem) + ptiny);
-    // 归一化因子
-    // Facteur de normalisation.
-
-    switch (bcMask & ETA_M) {
-    case ETA_M_COMM:
-    case 0:
-      delvm = domain.delv_eta(domain.letam(ielem));
-      break;
-
-    case ETA_M_SYMM:
-      delvm = domain.delv_eta(ielem);
-      break;
-
-    case ETA_M_FREE:
-      delvm = Real_t(0.0);
-      break;
-
-    default:
-      fprintf(stderr, "Error in switch at %s line %d\n", __FILE__, __LINE__);
-      delvm = 0;
-      break;
-    }
-
-    switch (bcMask & ETA_P) {
-    case ETA_P_COMM:
-    case 0:
-      delvp = domain.delv_eta(domain.letap(ielem));
-      break;
-
-    case ETA_P_SYMM:
-      delvp = domain.delv_eta(ielem);
-      break;
-
-    case ETA_P_FREE:
-      delvp = Real_t(0.0);
-      break;
-
-    default:
-      fprintf(stderr, "Error in switch at %s line %d\n", __FILE__, __LINE__);
-      delvp = 0;
-      break;
-    }
-
-        delvm = delvm * norm;
-    // 左向梯度归一化
-    // Normalisation du gradient vers la direction négative.
-
-    delvp = delvp * norm;
-    // 右向梯度归一化
-    // Normalisation du gradient vers la direction positive.
-
-    phieta = Real_t(.5) * (delvm + delvp);
-    // 初始 eta 方向限制器取两侧梯度平均
-    // Le limiteur initial en direction eta est la moyenne des deux gradients.
-
-    delvm *= monoq_limiter_mult;
-    // 扩大量程（左）
-    // Étend la plage d’action du limiteur (gauche).
-
-    delvp *= monoq_limiter_mult;
-    // 扩大量程（右）
-    // Étend la plage d’action du limiteur (droite).
-
-    if (delvm < phieta)
-      phieta = delvm;
-      // 限制器不超过最小梯度（左）
-      // Le limiteur ne dépasse pas le gradient minimum (gauche).
-
-    if (delvp < phieta)
-      phieta = delvp;
-      // 限制器不超过最小梯度（右）
-      // Le limiteur ne dépasse pas le gradient minimum (droite).
-
-    if (phieta < Real_t(0.))
-      phieta = Real_t(0.);
-      // 不能为负
-      // Ne peut pas être négatif.
-
-    if (phieta > monoq_max_slope)
-      phieta = monoq_max_slope;
-      // 不能超过最大斜率
-      // Ne peut pas dépasser la pente maximale.
-
-    norm = Real_t(1.) / (domain.delv_zeta(ielem) + ptiny);
-    // zeta 方向归一化因子
-    // Facteur de normalisation pour la direction zeta.
-
-    switch (bcMask & ZETA_M) {
-    case ZETA_M_COMM:
-    case 0:
-      delvm = domain.delv_zeta(domain.lzetam(ielem));
-      // 内部/通信：取负向邻居
-      // Interne/communication : utilise le voisin négatif.
-      break;
-
-    case ZETA_M_SYMM:
-      delvm = domain.delv_zeta(ielem);
-      // 对称边界：自身梯度
-      // Symétrique : utilise le gradient local.
-      break;
-
-    case ZETA_M_FREE:
-      delvm = Real_t(0.0);
-      // 自由边界：梯度为零
-      // Libre : gradient nul.
-      break;
-
-    default:
-      fprintf(stderr, "Error in switch at %s line %d\n", __FILE__, __LINE__);
-      // 错误情况输出（法语保持结构）
-      // Impression d’erreur pour un cas non géré.
-      delvm = 0;
-      break;
-    }
-
-    switch (bcMask & ZETA_P) {
-    case ZETA_P_COMM:
-    case 0:
-      delvp = domain.delv_zeta(domain.lzetap(ielem));
-      // 正向邻居
-      // Voisin dans la direction positive.
-      break;
-
-    case ZETA_P_SYMM:
-      delvp = domain.delv_zeta(ielem);
-      // 对称边界
-      // Condition symétrique.
-      break;
-
-    case ZETA_P_FREE:
-      delvp = Real_t(0.0);
-      // 自由边界
-      // Frontière libre.
-      break;
-
-    default:
-      fprintf(stderr, "Error in switch at %s line %d\n", __FILE__, __LINE__);
-      // 错误输出
-      // Impression d’erreur.
-      delvp = 0;
-      break;
-    }
-
-    delvm = delvm * norm;
-    // 左侧梯度归一化
-    // Normalisation du gradient négatif.
-
-    delvp = delvp * norm;
-    // 右侧梯度归一化
-    // Normalisation du gradient positif.
-
-    phizeta = Real_t(.5) * (delvm + delvp);
-    // zeta 方向限制器初值
-    // Valeur initiale du limiteur en direction zeta.
-
-    delvm *= monoq_limiter_mult;
-    // 扩大量程（左）
-    // Extension de plage (gauche).
-
-    delvp *= monoq_limiter_mult;
-    // 扩大量程（右）
-    // Extension de plage (droite).
-
-    if (delvm < phizeta)
-      phizeta = delvm;
-      // 限制最小值（左）
-      // Limite au minimum (gauche).
-
-    if (delvp < phizeta)
-      phizeta = delvp;
-      // 限制最小值（右）
-      // Limite au minimum (droite).
-
-    if (phizeta < Real_t(0.))
-      phizeta = Real_t(0.);
-      // 非负约束
-      // Contrainte de positivité.
-
-    if (phizeta > monoq_max_slope)
-      phizeta = monoq_max_slope;
-      // 上界约束
-      // Contrainte de pente maximale.
-
-    if (domain.vdov(ielem) > Real_t(0.)) {
-      qlin = Real_t(0.);
-      qquad = Real_t(0.);
-      // 体积膨胀时不产生粘性 Q
-      // Pas de viscosité Q en cas d’expansion volumique.
-    } else {
-
-      Real_t delvxxi = domain.delv_xi(ielem) * domain.delx_xi(ielem);
-      // xi 方向速度变化量
-      // Variation de vitesse en direction xi.
-
-      Real_t delvxeta = domain.delv_eta(ielem) * domain.delx_eta(ielem);
-      // eta 方向速度变化量
-      // Variation de vitesse en direction eta.
-
-      Real_t delvxzeta = domain.delv_zeta(ielem) * domain.delx_zeta(ielem);
-      // zeta 方向速度变化量
-      // Variation de vitesse en direction zeta.
-
-      if (delvxxi > Real_t(0.))
-        delvxxi = Real_t(0.);
-        // 正值不参与压缩 Q
-        // Les valeurs positives ne contribuent pas à la compression.
-
-      if (delvxeta > Real_t(0.))
-        delvxeta = Real_t(0.);
-        // 同上
-        // Idem.
-
-      if (delvxzeta > Real_t(0.))
-        delvxzeta = Real_t(0.);
-        // 同上
-        // Idem.
-
-      Real_t rho =
-          domain.elemMass(ielem) /
-          (domain.volo(ielem) * domain.vnew(ielem));
-      // 当前密度
-      // Densité actuelle.
-
-      qlin = -qlc_monoq * rho *
-             (delvxxi * (Real_t(1.) - phixi) +
-              delvxeta * (Real_t(1.) - phieta) +
-              delvxzeta * (Real_t(1.) - phizeta));
-      // 线性人工粘性项
-      // Terme linéaire de viscosité artificielle.
-
-      qquad = qqc_monoq * rho *
-             (delvxxi * delvxxi * (Real_t(1.) - phixi * phixi) +
-              delvxeta * delvxeta * (Real_t(1.) - phieta * phieta) +
-              delvxzeta * delvxzeta * (Real_t(1.) - phizeta * phizeta));
-      // 二次人工粘性项
-      // Terme quadratique de viscosité artificielle.
-    }
-
-    domain.qq(ielem) = qquad;
-    // 存储二次 Q
-    // Stocke le terme quadratique.
-
-    domain.ql(ielem) = qlin;
-    // 存储线性 Q
-    // Stocke le terme linéaire.
-    });
-}
-
-static inline void CalcMonotonicQForElems(Domain &domain) {
-  const Real_t ptiny = Real_t(1.e-36);
-  // 极小数防止除零
-  // Très petite valeur pour éviter la division par zéro.
-
-  for (Index_t r = 0; r < domain.numReg(); ++r) {
-    // 遍历所有区域
-    // Parcourt toutes les régions.
-
-    if (domain.regElemSize(r) > 0) {
-      // 仅处理含有单元的区域
-      // Ne traite que les régions contenant des éléments.
-
-      CalcMonotonicQRegionForElems(domain, r, ptiny);
-      // 调用区域级 Q 单调性计算
-      // Appelle le calcul monotone du Q pour la région.
-    }
-  }
-}
-
-static inline void CalcQForElems(Domain &domain) {
-  Index_t numElem = domain.numElem();
-  // 当前本地单元数量
-  // Nombre d’éléments locaux.
-
-  if (numElem != 0) {
-
-    Int_t allElem = numElem +                             
-                    2 * domain.sizeX() * domain.sizeY() + 
-                    2 * domain.sizeX() * domain.sizeZ() + 
-                    2 * domain.sizeY() * domain.sizeZ();
-    // 总单元数量（包含 ghost 单元）
-    // Nombre total d’éléments (y compris les éléments fantômes).
-
-    domain.AllocateGradients(numElem, allElem);
-    // 分配梯度存储空间
-    // Alloue la mémoire pour les gradients.
-
-#if USE_MPI
-    CommRecv(domain, MSG_MONOQ, 3, domain.sizeX(), domain.sizeY(),
-             domain.sizeZ(), true, true);
-    // MPI 接收梯度相关 ghost 数据
-    // MPI reçoit les données fantômes des gradients.
-#endif
-
-    CalcMonotonicQGradientsForElems(domain);
-    // 计算单元梯度（delv_xi, eta, zeta）
-    // Calcule les gradients des éléments.
-
-#if USE_MPI
-    Domain_member fieldData[3];
-    // MPI 字段指针数组
-    // Tableau des pointeurs vers les champs MPI.
-
-    fieldData[0] = &Domain::delv_xi;
-    fieldData[1] = &Domain::delv_eta;
-    fieldData[2] = &Domain::delv_zeta;
-    // 注册要通信的三个梯度字段
-    // Enregistre les trois champs de gradients à communiquer.
-
-    CommSend(domain, MSG_MONOQ, 3, fieldData, domain.sizeX(), domain.sizeY(),
-             domain.sizeZ(), true, true);
-    // MPI 发送梯度到邻居
-    // MPI envoie les gradients aux voisins.
-
-    CommMonoQ(domain);
-    // 完成 Q 的边界交换
-    // Finalise l’échange de Q.
-#endif
-
-    CalcMonotonicQForElems(domain);
-    // 对所有区域计算 Q（单调限制器）
-    // Calcule le Q monotone pour tous les éléments.
-
-    domain.DeallocateGradients();
-    // 释放梯度内存
-    // Libère la mémoire des gradients.
-
-    Index_t idx = -1;
-    // 默认没有触发 qstop
-    // Par défaut, aucun qstop déclenché.
-
-    typedef Kokkos::View<Index_t *> view_type_int;
-    view_type_int idxfind("A", numElem);
-    // 创建索引数组
-    // Crée un tableau d’indices.
-
-    Kokkos::parallel_for(numElem, [=](const Index_t i) {
-      idxfind(i) = numElem;
-      // 默认值为 numElem（即未触发）
-      // Valeur par défaut = numElem (non déclenché).
-
-      if (domain.q(i) > domain.qstop()) {
-        idxfind(i) = i;
-        // 找到 Q 过大的单元
-        // Détecte un élément où Q dépasse le seuil.
-      }
-    });
-
-    struct IdxMinFinder {
-      int val;
-
-      KOKKOS_INLINE_FUNCTION
-      IdxMinFinder() : val(1000000000) {}
-      // 初始化为很大的值
-      // Initialise avec une très grande valeur.
-
-      KOKKOS_INLINE_FUNCTION
-      IdxMinFinder(const int &val_) : val(val_) {}
-      // 从给定值构造
-      // Construit à partir d’une valeur donnée.
-
-      KOKKOS_INLINE_FUNCTION
-      IdxMinFinder(const IdxMinFinder &src) : val(src.val) {}
-      // 拷贝构造
-      // Constructeur par copie.
-
-      KOKKOS_INLINE_FUNCTION
-      void operator+=(IdxMinFinder &src) {
-        if (src.val < val) {
-          val = src.val;
-          // 取最小值
-          // Prend la valeur minimale.
-        }
-      }
-
-      KOKKOS_INLINE_FUNCTION
-      void operator+=(const volatile IdxMinFinder &src) volatile {
-        if (src.val < val) {
-          val = src.val;
-          // volatile 版本：同样取最小值
-          // Version volatile : prend aussi la valeur minimale.
-        }
-      }
+    /* coefficient 1/12
+       1/12 系数（六面体体积计算公式中的常数）
+    */
+    const Real_t twelveth = Real_t(1.0) / Real_t(12.0);
+
+    /* 
+       Differences entre différents couples de nœuds
+       计算节点差向量
+    */
+    Real_t dx61 = x6 - x1;
+    Real_t dy61 = y6 - y1;
+    Real_t dz61 = z6 - z1;
+
+    Real_t dx70 = x7 - x0;
+    Real_t dy70 = y7 - y0;
+    Real_t dz70 = z7 - z0;
+
+    Real_t dx63 = x6 - x3;
+    Real_t dy63 = y6 - y3;
+    Real_t dz63 = z6 - z3;
+
+    Real_t dx20 = x2 - x0;
+    Real_t dy20 = y2 - y0;
+    Real_t dz20 = z2 - z0;
+
+    Real_t dx50 = x5 - x0;
+    Real_t dy50 = y5 - y0;
+    Real_t dz50 = z5 - z0;
+
+    Real_t dx64 = x6 - x4;
+    Real_t dy64 = y6 - y4;
+    Real_t dz64 = z6 - z4;
+
+    Real_t dx31 = x3 - x1;
+    Real_t dy31 = y3 - y1;
+    Real_t dz31 = z3 - z1;
+
+    Real_t dx72 = x7 - x2;
+    Real_t dy72 = y7 - y2;
+    Real_t dz72 = z7 - z2;
+
+    Real_t dx43 = x4 - x3;
+    Real_t dy43 = y4 - y3;
+    Real_t dz43 = z4 - z3;
+
+    Real_t dx57 = x5 - x7;
+    Real_t dy57 = y5 - y7;
+    Real_t dz57 = z5 - z7;
+
+    Real_t dx14 = x1 - x4;
+    Real_t dy14 = y1 - y4;
+    Real_t dz14 = z1 - z4;
+
+    Real_t dx25 = x2 - x5;
+    Real_t dy25 = y2 - y5;
+    Real_t dz25 = z2 - z5;
+
+    /*
+       Produit triple : détermine 6 fois le volume du tétraèdre.
+       三重积：计算三个向量的体积贡献
+    */
+    auto TRIPLE = [&](Real_t x1, Real_t y1, Real_t z1,
+                      Real_t x2, Real_t y2, Real_t z2,
+                      Real_t x3, Real_t y3, Real_t z3) -> Real_t
+    {
+        return x1 * (y2 * z3 - z2 * y3)
+             + x2 * (z1 * y3 - y1 * z3)
+             + x3 * (y1 * z2 - z1 * y2);
     };
 
-    IdxMinFinder result;
-    // reduction 结果
-    // Résultat de la réduction.
+    /*
+       Volume total = somme de trois produits triples
+       总体积 = 三个三重积之和
+    */
+    Real_t volume =
+        TRIPLE(dx31 + dx72, dy31 + dy72, dz31 + dz72,
+               dx63, dy63, dz63,
+               dx20, dy20, dz20)
 
-    Kokkos::parallel_reduce(numElem,
-                            KOKKOS_LAMBDA(const int &i, IdxMinFinder &minf) {
-                              IdxMinFinder tmp(idxfind(i));
-                              minf += tmp;
-                              // 使用最小值规约
-                              // Réduction par minimum.
-                            },
-                            result);
+      + TRIPLE(dx43 + dx57, dy43 + dy57, dz43 + dz57,
+               dx64, dy64, dz64,
+               dx70, dy70, dz70)
 
-    idx = result.val;
-    // 得到全局最小索引
-    // Obtient l’indice minimal global.
+      + TRIPLE(dx14 + dx25, dy14 + dy25, dz14 + dz25,
+               dx61, dy61, dz61,
+               dx50, dy50, dz50);
 
-    if (idx == numElem) {
-      idx = -1;
-      // 若没有任何单元触发，则 idx = -1
-      // Si aucun élément n’a déclenché, idx = -1.
-    }
-
-    if (idx >= 0) {
-      // 如果发现不满足 qstop 的单元，终止程序
-      // Si un élément dépasse qstop, arrêt du programme.
-
-#if USE_MPI
-      MPI_Abort(MPI_COMM_WORLD, QStopError);
-      // MPI 模式下终止所有进程
-      // Arrêt global en MPI.
-#else
-      exit(QStopError);
-      // 非 MPI：退出程序
-      // Sans MPI : quitte le programme.
-#endif
-    }
-  }
+    /* normalisation par 1/12
+       最终体积须乘以 1/12
+    */
+    return volume * twelveth;
 }
 
-static inline void CalcPressureForElems(Real_t *p_new, Real_t *bvc,
-                                        Real_t *pbvc, Real_t *e_old,
-                                        Real_t *compression, Real_t *vnewc,
-                                        Real_t pmin, Real_t p_cut,
-                                        Real_t eosvmax, Index_t length,
-                                        Index_t *regElemList) {
+/*
+   Calcule une mesure géométrique associée à une face quadrilatérale.
+   计算四边形单元面的一种几何度量（用于特征长度计算）
+*/
+KOKKOS_INLINE_FUNCTION
+Real_t AreaFace(
+    const Real_t x0, const Real_t x1, const Real_t x2, const Real_t x3,
+    const Real_t y0, const Real_t y1, const Real_t y2, const Real_t y3,
+    const Real_t z0, const Real_t z1, const Real_t z2, const Real_t z3)
+{
+    /*
+       fx, fy, fz = (x2 - x0) − (x3 - x1)
+       第一个向量差：表示四边形的一条对角线方向差值
+    */
+    Real_t fx = (x2 - x0) - (x3 - x1);
+    Real_t fy = (y2 - y0) - (y3 - y1);
+    Real_t fz = (z2 - z0) - (z3 - z1);
 
-  Kokkos::parallel_for("CalcPressureForElems A", length,
-                       KOKKOS_LAMBDA(const int i) {
-    Real_t c1s = Real_t(2.0) / Real_t(3.0);
-    // 计算体模量系数 2/3
-    // Calcule le coefficient volumique 2/3.
+    /*
+       gx, gy, gz = (x2 - x0) + (x3 - x1)
+       第二个向量和：另一条方向的组合
+    */
+    Real_t gx = (x2 - x0) + (x3 - x1);
+    Real_t gy = (y2 - y0) + (y3 - y1);
+    Real_t gz = (z2 - z0) + (z3 - z1);
 
-    bvc[i] = c1s * (compression[i] + Real_t(1.));
-    // bvc = 2/3 × (压缩率 + 1)
-    // bvc = 2/3 × (compression + 1).
+    /*
+       L’expression combine deux termes : ||f||^2 * ||g||^2 − (f·g)^2
+       该表达式计算 f 与 g 的相关几何量：||f||^2 * ||g||^2 − (f·g)^2
+       这是平行四边形面积平方的等价表示
+    */
+    Real_t term1 = (fx*fx + fy*fy + fz*fz) * (gx*gx + gy*gy + gz*gz);
+    Real_t term2 = (fx*gx + fy*gy + fz*gz);
 
-    pbvc[i] = c1s;
-    // pbvc 恒为 2/3
-    // pbvc vaut toujours 2/3.
-  });
-
-  Kokkos::parallel_for("CalcPressureForElems B", length,
-                       KOKKOS_LAMBDA(const int i) {
-    Index_t ielem = regElemList[i];
-    // 获取真实单元 id
-    // Récupère l'identifiant réel de l’élément.
-
-    p_new[i] = bvc[i] * e_old[i];
-    // 新压力 = bvc × 内能
-    // Nouvelle pression = bvc × énergie interne.
-
-    if (FABS(p_new[i]) < p_cut)
-      p_new[i] = Real_t(0.0);
-    // 小于阈值的压力截断为 0
-    // Pression trop faible → coupée à zéro.
-
-    if (vnewc[ielem] >= eosvmax)
-      p_new[i] = Real_t(0.0);
-    // 若体积过大，压力强制为 0
-    // Si volume trop grand, pression annulée.
-
-    if (p_new[i] < pmin)
-      p_new[i] = pmin;
-    // 压力不能低于最小值
-    // Pression limitée par un minimum.
-  });
+    return term1 - term2 * term2;
 }
 
-static inline void
-CalcEnergyForElems(Real_t *p_new, Real_t *e_new, Real_t *q_new, Real_t *bvc,
-                   Real_t *pbvc, Real_t *p_old, Real_t *e_old, Real_t *q_old,
-                   Real_t *compression, Real_t *compHalfStep, Real_t *vnewc,
-                   Real_t *work, Real_t *delvc, Real_t pmin, Real_t p_cut,
-                   Real_t e_cut, Real_t q_cut, Real_t emin, Real_t *qq_old,
-                   Real_t *ql_old, Real_t rho0, Real_t eosvmax, Index_t length,
-                   Index_t *regElemList) {
+/*
+   Calcule la longueur caractéristique d’un élément hexaédrique.
+   计算六面体单元的特征长度（用于时间步长、人工粘性等）
+*/
+KOKKOS_INLINE_FUNCTION
+Real_t CalcElemCharacteristicLength(
+    const Real_t x[8],
+    const Real_t y[8],
+    const Real_t z[8],
+    const Real_t volume)
+{
+    /* 
+       charLength sera le plus grand area_face parmi les 6 faces.
+       charLength 将存储六个面的最大 areaFace 值（面积相关量）
+    */
+    Real_t charLength = Real_t(0.0);
 
-  Real_t *pHalfStep = Allocate<Real_t>(length);
-  // 分配半步压力数组
-  // Alloue le tableau de pression au demi-pas.
-
-  Kokkos::parallel_for("CalcEnergyForElems A", length,
-                       KOKKOS_LAMBDA(const int i) {
-
-    e_new[i] = e_old[i] - Real_t(0.5) * delvc[i] * (p_old[i] + q_old[i]) +
-               Real_t(0.5) * work[i];
-    // 基于体积变化 + 做功计算半步能量
-    // Énergie demi-pas = ancienne énergie − 1/2 ΔV × (p + q) + 1/2 × travail.
-
-    if (e_new[i] < emin) {
-      e_new[i] = emin;
-    }
-    // 内能不能低于最小值
-    // L’énergie interne est bornée inférieurement.
-  });
-
-  CalcPressureForElems(pHalfStep, bvc, pbvc, e_new, compHalfStep, vnewc, pmin,
-                       p_cut, eosvmax, length, regElemList);
-  // 使用半步内能求半步压力
-  // Calcule la pression au demi-pas à partir de l’énergie demi-pas.
-
-  Kokkos::parallel_for("CalcEnergyForElems B", length,
-                       KOKKOS_LAMBDA(const int i) {
-
-    Real_t vhalf = Real_t(1.) / (Real_t(1.) + compHalfStep[i]);
-    // 半步体积估计
-    // Volume estimé au demi-pas.
-
-    if (delvc[i] > Real_t(0.)) {
-      q_new[i] = Real_t(0.);
-      // 若体积增加，则无人工粘性
-      // Si expansion → pas de viscosité artificielle.
-    } else {
-      Real_t ssc =
-          (pbvc[i] * e_new[i] + vhalf * vhalf * bvc[i] * pHalfStep[i]) / rho0;
-      // 声速平方（未取 sqrt 前）
-      // Carré de la vitesse du son (avant racine).
-
-      if (ssc <= Real_t(.1111111e-36)) {
-        ssc = Real_t(.3333333e-18);
-      } else {
-        ssc = SQRT(ssc);
-      }
-      // 避免 sqrt(0)，并求声速
-      // Évite sqrt(0) et calcule la vitesse du son.
-
-      q_new[i] = (ssc * ql_old[i] + qq_old[i]);
-      // 更新人工粘性
-      // Met à jour la viscosité artificielle.
+    /* face avant (0,1,2,3)
+       面 1：节点 0,1,2,3
+    */
+    {
+        Real_t a = AreaFace(
+            x[0], x[1], x[2], x[3],
+            y[0], y[1], y[2], y[3],
+            z[0], z[1], z[2], z[3]);
+        charLength = (a > charLength ? a : charLength);
     }
 
-    e_new[i] =
-        e_new[i] +
-        Real_t(0.5) * delvc[i] * (Real_t(3.0) * (p_old[i] + q_old[i]) -
-                                  Real_t(4.0) * (pHalfStep[i] + q_new[i]));
-    // 完整第二步能量修正
-    // Correction complète de l’énergie interne.
-  });
-
-  Kokkos::parallel_for("CalcEnergyForElems C", length,
-                       KOKKOS_LAMBDA(const int i) {
-    e_new[i] += Real_t(0.5) * work[i];
-    // 加上后半步做功
-    // Ajoute la seconde moitié du travail.
-
-    if (FABS(e_new[i]) < e_cut) {
-      e_new[i] = Real_t(0.);
-    }
-    // 小能量截断
-    // Coupure des petites valeurs.
-
-    if (e_new[i] < emin) {
-      e_new[i] = emin;
-    }
-    // 能量不能低于最小值
-    // L’énergie interne est bornée.
-  });
-
-  CalcPressureForElems(p_new, bvc, pbvc, e_new, compression, vnewc, pmin, p_cut,
-                       eosvmax, length, regElemList);
-  // 使用最终内能重新计算压力
-  // Recalcule la pression après mise à jour finale de l’énergie.
-
-  Kokkos::parallel_for("CalcEnergyForElems D", length,
-                       KOKKOS_LAMBDA(const int i) {
-
-    const Real_t sixth = Real_t(1.0) / Real_t(6.0);
-    // 六分之一系数
-    // Coefficient un sixième.
-
-    Index_t ielem = regElemList[i];
-    // 单元 id
-    // Identifiant réel de l’élément.
-
-    Real_t q_tilde;
-
-    if (delvc[i] > Real_t(0.)) {
-      q_tilde = Real_t(0.);
-      // 体积增加 → 无人工粘性
-      // Expansion → pas de viscosité artificielle.
-    } else {
-      Real_t ssc = (pbvc[i] * e_new[i] +
-                    vnewc[ielem] * vnewc[ielem] * bvc[i] * p_new[i]) /
-                   rho0;
-
-      if (ssc <= Real_t(.1111111e-36)) {
-        ssc = Real_t(.3333333e-18);
-      } else {
-        ssc = SQRT(ssc);
-      }
-
-      q_tilde = (ssc * ql_old[i] + qq_old[i]);
-      // 新一轮人工粘性估计
-      // Nouvelle estimation de la viscosité artificielle.
+    /* face arrière (4,5,6,7)
+       面 2：节点 4,5,6,7
+    */
+    {
+        Real_t a = AreaFace(
+            x[4], x[5], x[6], x[7],
+            y[4], y[5], y[6], y[7],
+            z[4], z[5], z[6], z[7]);
+        charLength = (a > charLength ? a : charLength);
     }
 
-    e_new[i] =
-        e_new[i] -
-        (Real_t(7.0) * (p_old[i] + q_old[i]) -
-         Real_t(8.0) * (pHalfStep[i] + q_new[i]) + (p_new[i] + q_tilde)) *
-            delvc[i] * sixth;
-    // 完整三段式内能更新公式
-    // Formule complète d’intégration en trois étapes de l’énergie interne.
-
-    if (FABS(e_new[i]) < e_cut) {
-      e_new[i] = Real_t(0.);
+    /* face latérale (0,1,5,4)
+       面 3：节点 0,1,5,4
+    */
+    {
+        Real_t a = AreaFace(
+            x[0], x[1], x[5], x[4],
+            y[0], y[1], y[5], y[4],
+            z[0], z[1], z[5], z[4]);
+        charLength = (a > charLength ? a : charLength);
     }
-    if (e_new[i] < emin) {
-      e_new[i] = emin;
+
+    /* face latérale (1,2,6,5)
+       面 4：节点 1,2,6,5
+    */
+    {
+        Real_t a = AreaFace(
+            x[1], x[2], x[6], x[5],
+            y[1], y[2], y[6], y[5],
+            z[1], z[2], z[6], z[5]);
+        charLength = (a > charLength ? a : charLength);
     }
-  });
 
-  CalcPressureForElems(p_new, bvc, pbvc, e_new, compression, vnewc, pmin, p_cut,
-                       eosvmax, length, regElemList);
-  // 最终再次更新压力，确保与最终内能一致
-  // Met à jour la pression pour cohérence finale avec l’énergie.
-
-  Kokkos::parallel_for("CalcEnergyForElems E", length,
-                       KOKKOS_LAMBDA(const int i) {
-    Index_t ielem = regElemList[i];
-
-    if (delvc[i] <= Real_t(0.)) {
-      // 仅在压缩时更新人工粘性
-      // Viscosité artificielle mise à jour seulement en compression.
-
-      Real_t ssc = (pbvc[i] * e_new[i] +
-                    vnewc[ielem] * vnewc[ielem] * bvc[i] * p_new[i]) /
-                   rho0;
-
-      if (ssc <= Real_t(.1111111e-36)) {
-        ssc = Real_t(.3333333e-18);
-      } else {
-        ssc = SQRT(ssc);
-      }
-
-      q_new[i] = (ssc * ql_old[i] + qq_old[i]);
-
-      if (FABS(q_new[i]) < q_cut)
-        q_new[i] = Real_t(0.);
-      // 小人工粘性截断为 0
-      // Coupure des petites valeurs de q.
+    /* face latérale (2,3,7,6)
+       面 5：节点 2,3,7,6
+    */
+    {
+        Real_t a = AreaFace(
+            x[2], x[3], x[7], x[6],
+            y[2], y[3], y[7], y[6],
+            z[2], z[3], z[7], z[6]);
+        charLength = (a > charLength ? a : charLength);
     }
-  });
 
-  Release(&pHalfStep);
-  // 释放中间数组
-  // Libère le tableau intermédiaire.
+    /* face latérale (3,0,4,7)
+       面 6：节点 3,0,4,7
+    */
+    {
+        Real_t a = AreaFace(
+            x[3], x[0], x[4], x[7],
+            y[3], y[0], y[4], y[7],
+            z[3], z[0], z[4], z[7]);
+        charLength = (a > charLength ? a : charLength);
+    }
 
-  return;
+    /*
+       charLength = 4 * volume / sqrt(max_area)
+       公式：特征长度 = 4 * 体积 / 面积平方根
+       （来源于 LULESH 论文，用于 CFL 时间步限制）
+    */
+    charLength = Real_t(4.0) * volume / sqrt(charLength);
+
+    return charLength;
 }
 
-static inline void CalcSoundSpeedForElems(Domain &domain, Real_t *vnewc,
-                                          Real_t rho0, Real_t *enewc,
-                                          Real_t *pnewc, Real_t *pbvc,
-                                          Real_t *bvc, Real_t ss4o3,
-                                          Index_t len, Index_t *regElemList) {
-  Kokkos::parallel_for("CalcSoundSpeedForElems", len,
-                       KOKKOS_LAMBDA(const int i) {
-    Index_t ielem = regElemList[i];
-    // 获取真实单元索引
-    // Récupère l’indice réel de l’élément.
+/*
+   Calcule le gradient de vitesse (D) à l’intérieur d’un élément.
+   计算单元内部的速度梯度张量（应变速率张量 D）
+   Entrées:
+     xvel[8], yvel[8], zvel[8]  → vitesses nodales / 节点速度
+     b[3][8]                    → dérivées des fonctions de forme / 形函数导数
+     detJ                       → déterminant jacobien / 雅可比行列式
+   Sortie:
+     d[6] → {dxx, dyy, dzz, dyz, dxz, dxy}
+*/
+KOKKOS_INLINE_FUNCTION
+void CalcElemVelocityGradient(
+    const Real_t* const xvel,
+    const Real_t* const yvel,
+    const Real_t* const zvel,
+    const Real_t b[][8],
+    const Real_t detJ,
+    Real_t* const d )
+{
+    const Real_t inv_detJ = Real_t(1.0) / detJ;
 
-    Real_t ssTmp =
-        (pbvc[i] * enewc[i] + vnewc[ielem] * vnewc[ielem] * bvc[i] * pnewc[i]) /
-        rho0;
-    // 声速平方（未开方）= (pbvc·e + v²·bvc·p) / 密度
-    // Carré de la vitesse du son (avant racine) = (pbvc·e + v²·bvc·p) / densité.
+    Real_t dyddx, dxddy, dzddx, dxddz, dzddy, dyddz;
 
-    if (ssTmp <= Real_t(.1111111e-36)) {
-      ssTmp = Real_t(.3333333e-18);
-      // 避免声速为零 → 设定极小正值
-      // Pour éviter une vitesse nulle → valeur minimale positive.
-    } else {
-      ssTmp = SQRT(ssTmp);
-      // 取平方根得到声速
-      // Prend la racine carrée pour obtenir la vitesse du son.
-    }
+    const Real_t* const pfx = b[0];  /* dérivées ∂N/∂x  形函数 x 方向导数 */
+    const Real_t* const pfy = b[1];  /* dérivées ∂N/∂y */
+    const Real_t* const pfz = b[2];  /* dérivées ∂N/∂z */
 
-    domain.ss(ielem) = ssTmp;
-    // 写入结果到域变量
-    // Enregistre la vitesse du son dans le domaine.
-  });
+    /* 
+       dxx, dyy, dzz = gradient diagonal
+       计算速度梯度张量的对角项
+    */
+    d[0] = inv_detJ * ( pfx[0]*(xvel[0]-xvel[6])
+                      + pfx[1]*(xvel[1]-xvel[7])
+                      + pfx[2]*(xvel[2]-xvel[4])
+                      + pfx[3]*(xvel[3]-xvel[5]) );
+
+    d[1] = inv_detJ * ( pfy[0]*(yvel[0]-yvel[6])
+                      + pfy[1]*(yvel[1]-yvel[7])
+                      + pfy[2]*(yvel[2]-yvel[4])
+                      + pfy[3]*(yvel[3]-yvel[5]) );
+
+    d[2] = inv_detJ * ( pfz[0]*(zvel[0]-zvel[6])
+                      + pfz[1]*(zvel[1]-zvel[7])
+                      + pfz[2]*(zvel[2]-zvel[4])
+                      + pfz[3]*(zvel[3]-zvel[5]) );
+
+    /* Off-diagonal terms
+       非对角项的组合运算
+    */
+    dyddx = inv_detJ * ( pfx[0]*(yvel[0]-yvel[6])
+                       + pfx[1]*(yvel[1]-yvel[7])
+                       + pfx[2]*(yvel[2]-yvel[4])
+                       + pfx[3]*(yvel[3]-yvel[5]) );
+
+    dxddy = inv_detJ * ( pfy[0]*(xvel[0]-xvel[6])
+                       + pfy[1]*(xvel[1]-xvel[7])
+                       + pfy[2]*(xvel[2]-xvel[4])
+                       + pfy[3]*(xvel[3]-xvel[5]) );
+
+    dzddx = inv_detJ * ( pfx[0]*(zvel[0]-zvel[6])
+                       + pfx[1]*(zvel[1]-zvel[7])
+                       + pfx[2]*(zvel[2]-zvel[4])
+                       + pfx[3]*(zvel[3]-zvel[5]) );
+
+    dxddz = inv_detJ * ( pfz[0]*(xvel[0]-xvel[6])
+                       + pfz[1]*(xvel[1]-xvel[7])
+                       + pfz[2]*(xvel[2]-xvel[4])
+                       + pfz[3]*(xvel[3]-xvel[5]) );
+
+    dzddy = inv_detJ * ( pfy[0]*(zvel[0]-zvel[6])
+                       + pfy[1]*(zvel[1]-zvel[7])
+                       + pfy[2]*(zvel[2]-zvel[4])
+                       + pfy[3]*(zvel[3]-zvel[5]) );
+
+    dyddz = inv_detJ * ( pfz[0]*(yvel[0]-yvel[6])
+                       + pfz[1]*(yvel[1]-yvel[7])
+                       + pfz[2]*(yvel[2]-yvel[4])
+                       + pfz[3]*(yvel[3]-yvel[5]) );
+
+    /*
+       dxy, dxz, dyz = combinaisons symétriques
+       对称处理（应变速率张量）
+    */
+    d[5] = Real_t(0.5) * (dxddy + dyddx); /* dxy */
+    d[4] = Real_t(0.5) * (dxddz + dzddx); /* dxz */
+    d[3] = Real_t(0.5) * (dzddy + dyddz); /* dyz */
 }
 
-static inline void EvalEOSForElems(Domain &domain, Real_t *vnewc,
-                                   Int_t numElemReg, Index_t *regElemList,
-                                   Int_t rep) {
+/* 
+   Calcule la cinématique des éléments : volume, volume relatif, 
+   vitesse gradient, longueur caractéristique.
+   计算单元的运动学量：体积、相对体积、速度梯度、特征长度。
+*/
+KOKKOS_INLINE_FUNCTION
+void CalcKinematicsForElems(
+    Domain &domain,
+    const Real_t deltaTime,
+    const Index_t numElem)
+{
+    /* 
+       Boucle sur tous les éléments.
+       对所有单元执行循环。
+    */
+    Kokkos::parallel_for(
+        "CalcKinematicsForElems",
+        Kokkos::RangePolicy<ExecSpace>(0, numElem),
+        KOKKOS_LAMBDA(const Index_t k)
+    {
+        Real_t B[3][8];   /* dérivées des fonctions de forme / 形函数导数 */
+        Real_t D[6];      /* gradient de vitesse / 速度梯度张量 */
 
-  Real_t e_cut = domain.e_cut();
-  // 能量截断阈值
-  // Seuil de coupure pour l’énergie.
+        Real_t x_local[8];
+        Real_t y_local[8];
+        Real_t z_local[8];
 
-  Real_t p_cut = domain.p_cut();
-  // 压力截断阈值
-  // Seuil de coupure pour la pression.
+        Real_t xd_local[8];
+        Real_t yd_local[8];
+        Real_t zd_local[8];
 
-  Real_t ss4o3 = domain.ss4o3();
-  // 4/3 的声速参数
-  // Paramètre de vitesse du son (4/3).
+        Real_t detJ = Real_t(0.0);
 
-  Real_t q_cut = domain.q_cut();
-  // 人工粘性 q 的截断阈值
-  // Seuil de coupure pour la viscosité artificielle q.
+        const Index_t* const elemToNode = domain.nodelist(k);
 
-  Real_t eosvmax = domain.eosvmax();
-  Real_t eosvmin = domain.eosvmin();
-  // 允许体积的最大值和最小值
-  // Volumes minimum et maximum autorisés.
+        /* ---------------------------------------------------------
+           1. Charger les coordonnées nodales
+           1. 收集单元节点坐标
+        --------------------------------------------------------- */
+        CollectDomainNodesToElemNodes(domain, elemToNode,
+                                      x_local, y_local, z_local);
 
-  Real_t pmin = domain.pmin();
-  Real_t emin = domain.emin();
-  // 最小压力和最小能量
-  // Pression minimale et énergie minimale.
+        /* ---------------------------------------------------------
+           2. Calcul du volume de l’élément
+           2. 计算单元体积
+        --------------------------------------------------------- */
+        Real_t volume = CalcElemVolume(x_local, y_local, z_local);
+        Real_t relativeVolume = volume / domain.volo(k);
 
-  Real_t rho0 = domain.refdens();
-  // 参考密度
-  // Densité de référence.
+        domain.vnew(k) = relativeVolume;           /* nouveau volume 相对体积 */
+        domain.delv(k) = relativeVolume - domain.v(k); /* 体积变化 */
 
+        /* ---------------------------------------------------------
+           3. Longueur caractéristique (géométrie)
+           3. 单元特征长度
+        --------------------------------------------------------- */
+        domain.arealg(k) =
+            CalcElemCharacteristicLength(x_local, y_local, z_local, volume);
 
-  // 分配局部数组（每个区域独立）
-  // Alloue les tableaux locaux (propres à la région).
-  Real_t *e_old = Allocate<Real_t>(numElemReg);
-  Real_t *delvc = Allocate<Real_t>(numElemReg);
-  Real_t *p_old = Allocate<Real_t>(numElemReg);
-  Real_t *q_old = Allocate<Real_t>(numElemReg);
-  Real_t *compression = Allocate<Real_t>(numElemReg);
-  Real_t *compHalfStep = Allocate<Real_t>(numElemReg);
-  Real_t *qq_old = Allocate<Real_t>(numElemReg);
-  Real_t *ql_old = Allocate<Real_t>(numElemReg);
-  Real_t *work = Allocate<Real_t>(numElemReg);
-  Real_t *p_new = Allocate<Real_t>(numElemReg);
-  Real_t *e_new = Allocate<Real_t>(numElemReg);
-  Real_t *q_new = Allocate<Real_t>(numElemReg);
-  Real_t *bvc = Allocate<Real_t>(numElemReg);
-  Real_t *pbvc = Allocate<Real_t>(numElemReg);
-
-
-  for (Int_t j = 0; j < rep; j++) {
-    // rep 次重复（某些 EOS 需要迭代）
-    // Répète rep fois (certains EOS nécessitent des itérations).
-
-    Kokkos::parallel_for("EvalEOSForElems A", numElemReg,
-                         KOKKOS_LAMBDA(const int i) {
-      Index_t ielem = regElemList[i];
-      // 提取单元编号
-      // Extrait l’indice réel de l’élément.
-
-      e_old[i] = domain.e(ielem);
-      delvc[i] = domain.delv(ielem);
-      p_old[i] = domain.p(ielem);
-      q_old[i] = domain.q(ielem);
-      qq_old[i] = domain.qq(ielem);
-      ql_old[i] = domain.ql(ielem);
-      // 复制旧状态（能量·体积变化·压力·人工粘性）
-      // Copie des anciens états (énergie, ΔV, pression, viscosité artificielle).
-    });
-
-    Kokkos::parallel_for("EvalEOSForElems B", numElemReg,
-                         KOKKOS_LAMBDA(const int i) {
-      Index_t ielem = regElemList[i];
-
-      Real_t vchalf;
-      compression[i] = Real_t(1.) / vnewc[ielem] - Real_t(1.);
-      // 压缩率 = 1/V - 1
-      // Compression = 1/V − 1.
-
-      vchalf = vnewc[ielem] - delvc[i] * Real_t(.5);
-      // 半步体积：Vₙ − ΔV/2
-      // Volume demi-pas : Vₙ − ΔV/2.
-
-      compHalfStep[i] = Real_t(1.) / vchalf - Real_t(1.);
-      // 半步压缩率 = 1/V_half − 1
-      // Compression demi-pas = 1/V_half − 1.
-    });
-
-    if (eosvmin != Real_t(0.)) {
-      Kokkos::parallel_for("EvalEOSForElems C", numElemReg,
-                           KOKKOS_LAMBDA(const int i) {
-        Index_t ielem = regElemList[i];
-        if (vnewc[ielem] <= eosvmin) {
-          // 如果体积过小，用整体压缩代替半步压缩
-          // Si volume trop petit, utilise compression complète.
-          compHalfStep[i] = compression[i];
+        /* ---------------------------------------------------------
+           4. Charger vitesses nodales
+           4. 加载节点速度
+        --------------------------------------------------------- */
+        for (Index_t ln = 0; ln < 8; ++ln) {
+            Index_t g = elemToNode[ln];
+            xd_local[ln] = domain.xd(g);
+            yd_local[ln] = domain.yd(g);
+            zd_local[ln] = domain.zd(g);
         }
-      });
-    }
 
-    if (eosvmax != Real_t(0.)) {
-      Kokkos::parallel_for("EvalEOSForElems D", numElemReg,
-                           KOKKOS_LAMBDA(const int i) {
-        Index_t ielem = regElemList[i];
-        if (vnewc[ielem] >= eosvmax) {
-          // 如果体积过大：压力与压缩全部清零
-          // Si volume trop grand : pression et compression annulées.
-          p_old[i] = Real_t(0.);
-          compression[i] = Real_t(0.);
-          compHalfStep[i] = Real_t(0.);
+        /* ---------------------------------------------------------
+           5. Appliquer un décalage demi-pas (Lagrange)
+              x -= (Δt/2) * v
+           5. Lagrange 半步推进
+        --------------------------------------------------------- */
+        Real_t dt2 = Real_t(0.5) * deltaTime;
+        for (Index_t j = 0; j < 8; ++j) {
+            x_local[j] -= dt2 * xd_local[j];
+            y_local[j] -= dt2 * yd_local[j];
+            z_local[j] -= dt2 * zd_local[j];
         }
-      });
-    }
 
-    Kokkos::parallel_for("EvalEOSForElems E", numElemReg,
-                         KOKKOS_LAMBDA(const int i) {
-      work[i] = Real_t(0.);
-      // EOS 不考虑外功 → work = 0
-      // L’EOS n’intègre pas de travail externe → work = 0.
+        /* ---------------------------------------------------------
+           6. Calculer B 矩阵 + detJ（雅可比行列式）
+        --------------------------------------------------------- */
+        CalcElemShapeFunctionDerivatives(x_local, y_local, z_local,
+                                         B, &detJ);
+
+        /* ---------------------------------------------------------
+           7. Calculer le gradient de vitesse D
+           7. 计算速度梯度张量 D
+        --------------------------------------------------------- */
+        CalcElemVelocityGradient(xd_local, yd_local, zd_local,
+                                 B, detJ, D);
+
+        /* ---------------------------------------------------------
+           8. Stocker les quantités dans le domain
+           8. 写回域数据
+        --------------------------------------------------------- */
+        domain.dxx(k) = D[0];
+        domain.dyy(k) = D[1];
+        domain.dzz(k) = D[2];
     });
-
-
-    // 计算新能量/压力/粘性（核心 EOS）
-    // Calcul de l’énergie/pression/viscosité (cœur de l’EOS).
-    CalcEnergyForElems(p_new, e_new, q_new, bvc, pbvc, p_old, e_old, q_old,
-                       compression, compHalfStep, vnewc, work, delvc, pmin,
-                       p_cut, e_cut, q_cut, emin, qq_old, ql_old, rho0,
-                       eosvmax, numElemReg, regElemList);
-  }
-
-  Kokkos::parallel_for("EvalEOSForElems F", numElemReg,
-                       KOKKOS_LAMBDA(const int i) {
-    Index_t ielem = regElemList[i];
-    // 写回域中
-    // Écrit les résultats dans le domaine.
-
-    domain.p(ielem) = p_new[i];
-    domain.e(ielem) = e_new[i];
-    domain.q(ielem) = q_new[i];
-  });
-
-  // 更新声速
-  // Met à jour la vitesse du son.
-  CalcSoundSpeedForElems(domain, vnewc, rho0, e_new, p_new,
-                         pbvc, bvc, ss4o3, numElemReg, regElemList);
-
-  // 释放内存
-  // Libère la mémoire.
-  Release(&pbvc);
-  Release(&bvc);
-  Release(&q_new);
-  Release(&e_new);
-  Release(&p_new);
-  Release(&work);
-  Release(&ql_old);
-  Release(&qq_old);
-  Release(&compHalfStep);
-  Release(&compression);
-  Release(&q_old);
-  Release(&p_old);
-  Release(&delvc);
-  Release(&e_old);
 }
 
-static inline void ApplyMaterialPropertiesForElems(Domain &domain) {
-  Index_t numElem = domain.numElem();
-  // 读取单元数量
-  // Lit le nombre d’éléments.
+/*
+   Met à jour les grandeurs lagrangiennes des éléments :
+   calcul du taux de déformation, contrainte de déviateur, 
+   et vérification du volume.
+   更新单元的拉格朗日物理量：应变速率、偏应变，以及体积检查。
+*/
+KOKKOS_INLINE_FUNCTION
+void CalcLagrangeElements(Domain& domain)
+{
+    Index_t numElem = domain.numElem();
 
-  if (numElem != 0) {
-    // 若存在单元则继续
-    // Continue seulement si des éléments existent.
+    if (numElem > 0) {
 
-    Real_t eosvmin = domain.eosvmin();
-    Real_t eosvmax = domain.eosvmax();
-    // EOS 支持的最小体积与最大体积
-    // Volume minimal et maximal autorisés par l’EOS.
+        const Real_t deltatime = domain.deltatime();
 
-    Real_t *vnewc = Allocate<Real_t>(numElem);
-    // 分配存放 vnew 的数组
-    // Alloue un tableau pour vnew.
+        /* 
+           Allouer les tableaux de déformation (si nécessaire)
+           分配应变相关数组（如需要）
+        */
+        domain.AllocateStrains(numElem);
+
+        /* 
+           Calcul des grandeurs cinématiques par élément
+           计算每个单元的运动学量
+        */
+        CalcKinematicsForElems(domain, deltatime, numElem);
+
+        /* 
+           Deuxième boucle : imposer la contrainte déviatorique,
+           calculer vdov, et détecter les volumes négatifs.
+           第二个循环：施加偏应变约束、计算vdov、检测体积负值。
+        */
+        Kokkos::parallel_for(
+            "CalcLagrangeElements",
+            Kokkos::RangePolicy<ExecSpace>(0, numElem),
+            KOKKOS_LAMBDA(const Index_t k)
+        {
+            /* 
+               Taux de déformation volumique vdov = tr(D)
+               体积应变速率 vdov = 速度梯度迹（Dxx+Dyy+Dzz）
+            */
+            Real_t vdov = domain.dxx(k)
+                        + domain.dyy(k)
+                        + domain.dzz(k);
+
+            Real_t vdovthird = vdov / Real_t(3.0);
+
+            /* 
+               Rendre le tenseur de déformation déviatorique
+               使变形张量成为偏张量（去除体积部分）
+            */
+            domain.vdov(k) = vdov;
+
+            domain.dxx(k) -= vdovthird;
+            domain.dyy(k) -= vdovthird;
+            domain.dzz(k) -= vdovthird;
+
+            /* 
+               Vérification du volume : si vnew ≤ 0 → erreur fatale
+               检查体积：若 vnew ≤ 0 → 致命错误
+            */
+            if (domain.vnew(k) <= Real_t(0.0)) {
+                /* 
+                   Version MPI retirée (USE_MPI=0).
+                   删除 MPI 版本（USE_MPI=0）
+                */
+                Kokkos::abort("VolumeError: negative element volume detected.");
+            }
+        });
+
+        /* 
+           Libérer les tableaux temporaires de déformation
+           释放应变的临时数组
+        */
+        domain.DeallocateStrains();
+    }
+}
+
+/*
+   Calcule les gradients nécessaires pour le Q monotone (delx, delv)
+   计算单调人工粘性（Q）的梯度信息：delx_* 与 delv_*
+*/
+KOKKOS_INLINE_FUNCTION
+void CalcMonotonicQGradientsForElems(Domain& domain)
+{
+    const Index_t numElem = domain.numElem();
 
     Kokkos::parallel_for(
-        "ApplyMaterialPropertiesForElems A", numElem,
-        KOKKOS_LAMBDA(const int i) { vnewc[i] = domain.vnew(i); });
-    // 复制每个单元最新体积到 vnewc
-    // Copie les volumes mis à jour de chaque élément dans vnewc.
+        "CalcMonotonicQGradientsForElems",
+        Kokkos::RangePolicy<ExecSpace>(0, numElem),
+        KOKKOS_LAMBDA(const Index_t i)
+    {
+        const Real_t ptiny = Real_t(1.e-36);
+        Real_t ax, ay, az;
+        Real_t dxv, dyv, dzv;
 
-    if (eosvmin != Real_t(0.)) {
-      // 若设置了体积下界，则进行限制
-      // Si un volume minimal est défini, applique la limite.
+        /* 
+           Récupérer la connectivité élément→nœuds
+           获取该单元的节点编号
+        */
+        const Index_t* elemToNode = domain.nodelist(i);
 
-      Kokkos::parallel_for("ApplyMaterialPropertiesForElems B", numElem,
-                           KOKKOS_LAMBDA(const int i) {
-        if (vnewc[i] < eosvmin)
-          vnewc[i] = eosvmin;
-        // 体积不能小于最小值
-        // Le volume ne peut pas être inférieur au minimum.
-      });
+        Index_t n0 = elemToNode[0];
+        Index_t n1 = elemToNode[1];
+        Index_t n2 = elemToNode[2];
+        Index_t n3 = elemToNode[3];
+        Index_t n4 = elemToNode[4];
+        Index_t n5 = elemToNode[5];
+        Index_t n6 = elemToNode[6];
+        Index_t n7 = elemToNode[7];
+
+        /* 
+           Charger les coordonnées (x,y,z)
+           加载节点坐标
+        */
+        Real_t x0 = domain.x(n0); Real_t x1 = domain.x(n1);
+        Real_t x2 = domain.x(n2); Real_t x3 = domain.x(n3);
+        Real_t x4 = domain.x(n4); Real_t x5 = domain.x(n5);
+        Real_t x6 = domain.x(n6); Real_t x7 = domain.x(n7);
+
+        Real_t y0 = domain.y(n0); Real_t y1 = domain.y(n1);
+        Real_t y2 = domain.y(n2); Real_t y3 = domain.y(n3);
+        Real_t y4 = domain.y(n4); Real_t y5 = domain.y(n5);
+        Real_t y6 = domain.y(n6); Real_t y7 = domain.y(n7);
+
+        Real_t z0 = domain.z(n0); Real_t z1 = domain.z(n1);
+        Real_t z2 = domain.z(n2); Real_t z3 = domain.z(n3);
+        Real_t z4 = domain.z(n4); Real_t z5 = domain.z(n5);
+        Real_t z6 = domain.z(n6); Real_t z7 = domain.z(n7);
+
+        /* 
+           Charger les vitesses nodales
+           加载节点速度
+        */
+        Real_t xv0 = domain.xd(n0); Real_t xv1 = domain.xd(n1);
+        Real_t xv2 = domain.xd(n2); Real_t xv3 = domain.xd(n3);
+        Real_t xv4 = domain.xd(n4); Real_t xv5 = domain.xd(n5);
+        Real_t xv6 = domain.xd(n6); Real_t xv7 = domain.xd(n7);
+
+        Real_t yv0 = domain.yd(n0); Real_t yv1 = domain.yd(n1);
+        Real_t yv2 = domain.yd(n2); Real_t yv3 = domain.yd(n3);
+        Real_t yv4 = domain.yd(n4); Real_t yv5 = domain.yd(n5);
+        Real_t yv6 = domain.yd(n6); Real_t yv7 = domain.yd(n7);
+
+        Real_t zv0 = domain.zd(n0); Real_t zv1 = domain.zd(n1);
+        Real_t zv2 = domain.zd(n2); Real_t zv3 = domain.zd(n3);
+        Real_t zv4 = domain.zd(n4); Real_t zv5 = domain.zd(n5);
+        Real_t zv6 = domain.zd(n6); Real_t zv7 = domain.zd(n7);
+
+        /* 
+           Volume actuel = volo * vnew
+           当前体积
+        */
+        Real_t vol = domain.volo(i) * domain.vnew(i);
+        Real_t norm = Real_t(1.0) / (vol + ptiny);
+
+        /*-----------------------------------------------*
+         |                Direction  ζ                  |
+         *-----------------------------------------------*/
+
+        Real_t dxj = Real_t(-0.25) * ((x0+x1+x5+x4) - (x3+x2+x6+x7));
+        Real_t dyj = Real_t(-0.25) * ((y0+y1+y5+y4) - (y3+y2+y6+y7));
+        Real_t dzj = Real_t(-0.25) * ((z0+z1+z5+z4) - (z3+z2+z6+z7));
+
+        Real_t dxi = Real_t(0.25) * ((x1+x2+x6+x5) - (x0+x3+x7+x4));
+        Real_t dyi = Real_t(0.25) * ((y1+y2+y6+y5) - (y0+y3+y7+y4));
+        Real_t dzi = Real_t(0.25) * ((z1+x2+z6+z5) - (z0+z3+z7+z4));
+
+        Real_t dxk = Real_t(0.25) * ((x4+x5+x6+x7) - (x0+x1+x2+x3));
+        Real_t dyk = Real_t(0.25) * ((y4+y5+y6+y7) - (y0+y1+y2+y3));
+        Real_t dzk = Real_t(0.25) * ((z4+z5+z6+z7) - (z0+z1+z2+z3));
+
+        /* (i cross j) */
+        ax = dyi*dzj - dzi*dyj;
+        ay = dzi*dxj - dxi*dzj;
+        az = dxi*dyj - dyi*dxj;
+
+        domain.delx_zeta(i) = vol / sqrt(ax*ax + ay*ay + az*az + ptiny);
+
+        ax *= norm; ay *= norm; az *= norm;
+
+        dxv = Real_t(0.25) * ((xv4+xv5+xv6+xv7) - (xv0+xv1+xv2+xv3));
+        dyv = Real_t(0.25) * ((yv4+yv5+yv6+yv7) - (yv0+yv1+yv2+yv3));
+        dzv = Real_t(0.25) * ((zv4+zv5+zv6+zv7) - (zv0+zv1+zv2+zv3));
+
+        domain.delv_zeta(i) = ax*dxv + ay*dyv + az*dzv;
+
+        /*-----------------------------------------------*
+         |                Direction  ξ                  |
+         *-----------------------------------------------*/
+
+        ax = dyj*dzk - dzj*dyk;
+        ay = dzj*dxk - dxj*dzk;
+        az = dxj*dyk - dyj*dxk;
+
+        domain.delx_xi(i) = vol / sqrt(ax*ax + ay*ay + az*az + ptiny);
+
+        ax *= norm; ay *= norm; az *= norm;
+
+        dxv = Real_t(0.25) * ((xv1+xv2+xv6+xv5) - (xv0+xv3+xv7+xv4));
+        dyv = Real_t(0.25) * ((yv1+yv2+yv6+yv5) - (yv0+yv3+yv7+yv4));
+        dzv = Real_t(0.25) * ((zv1+zv2+zv6+zv5) - (zv0+zv3+zv7+zv4));
+
+        domain.delv_xi(i) = ax*dxv + ay*dyv + az*dzv;
+
+        /*-----------------------------------------------*
+         |                Direction  η                  |
+         *-----------------------------------------------*/
+
+        ax = dyk*dzi - dzk*dyi;
+        ay = dzk*dxi - dxk*dzi;
+        az = dxk*dyi - dyk*dxi;
+
+        domain.delx_eta(i) = vol / sqrt(ax*ax + ay*ay + az*az + ptiny);
+
+        ax *= norm; ay *= norm; az *= norm;
+
+        dxv = Real_t(-0.25) * ((xv0+xv1+xv5+xv4) - (xv3+xv2+xv6+xv7));
+        dyv = Real_t(-0.25) * ((yv0+yv1+yv5+yv4) - (yv3+yv2+yv6+yv7));
+        dzv = Real_t(-0.25) * ((zv0+zv1+zv5+zv4) - (zv3+zv2+zv6+zv7));
+
+        domain.delv_eta(i) = ax*dxv + ay*dyv + az*dzv;
+    });
+}
+
+/* 
+   Calcule le q monotone pour une région d’éléments.
+   对一个区域内的所有单元计算单调人工粘性 Q。
+*/
+KOKKOS_INLINE_FUNCTION
+void CalcMonotonicQRegionForElems(Domain &domain, Int_t r, Real_t ptiny)
+{
+    Real_t monoq_limiter_mult = domain.monoq_limiter_mult();
+    Real_t monoq_max_slope    = domain.monoq_max_slope();
+    Real_t qlc_monoq          = domain.qlc_monoq();
+    Real_t qqc_monoq          = domain.qqc_monoq();
+
+    Index_t regSize = domain.regElemSize(r);
+
+    Kokkos::parallel_for(
+        "CalcMonotonicQRegionForElems",
+        Kokkos::RangePolicy<ExecSpace>(0, regSize),
+        KOKKOS_LAMBDA(const Index_t idx)
+    {
+        Index_t ielem = domain.regElemlist(r, idx);
+
+        Real_t qlin, qquad;
+        Real_t phixi, phieta, phizeta;
+        Int_t bcMask = domain.elemBC(ielem);
+        Real_t delvm = 0.0, delvp = 0.0;
+
+        /*---------------------------------------------------*
+         |                  Direction  ξ                    |
+         *---------------------------------------------------*/
+
+        /* 
+           norm = 1 / (delv_xi + ptiny)
+           归一化系数（防止除零）
+        */
+        Real_t norm = Real_t(1.0) / (domain.delv_xi(ielem) + ptiny);
+
+        /* 
+           BC du côté -ξ
+           -ξ 边界条件处理
+        */
+        switch (bcMask & XI_M) {
+            case XI_M_COMM: /* nécessite des données MPI（被禁用但逻辑保留） */
+            case 0:
+                delvm = domain.delv_xi(domain.lxim(ielem));
+                break;
+            case XI_M_SYMM:
+                delvm = domain.delv_xi(ielem);
+                break;
+            case XI_M_FREE:
+                delvm = Real_t(0.0);
+                break;
+            default:
+                delvm = Real_t(0.0);
+                break;
+        }
+
+        /* BC du côté +ξ (+ξ 方向) */
+        switch (bcMask & XI_P) {
+            case XI_P_COMM:
+            case 0:
+                delvp = domain.delv_xi(domain.lxip(ielem));
+                break;
+            case XI_P_SYMM:
+                delvp = domain.delv_xi(ielem);
+                break;
+            case XI_P_FREE:
+                delvp = Real_t(0.0);
+                break;
+            default:
+                delvp = Real_t(0.0);
+                break;
+        }
+
+        delvm *= norm;
+        delvp *= norm;
+
+        phixi = Real_t(.5) * (delvm + delvp);
+
+        delvm *= monoq_limiter_mult;
+        delvp *= monoq_limiter_mult;
+
+        if (delvm < phixi) phixi = delvm;
+        if (delvp < phixi) phixi = delvp;
+        if (phixi < Real_t(0.0)) phixi = Real_t(0.0);
+        if (phixi > monoq_max_slope) phixi = monoq_max_slope;
+
+        /*---------------------------------------------------*
+         |                 Direction  η                     |
+         *---------------------------------------------------*/
+
+        norm = Real_t(1.0) / (domain.delv_eta(ielem) + ptiny);
+
+        switch (bcMask & ETA_M) {
+            case ETA_M_COMM:
+            case 0:
+                delvm = domain.delv_eta(domain.letam(ielem));
+                break;
+            case ETA_M_SYMM:
+                delvm = domain.delv_eta(ielem);
+                break;
+            case ETA_M_FREE:
+                delvm = Real_t(0.0);
+                break;
+            default:
+                delvm = Real_t(0.0);
+        }
+
+        switch (bcMask & ETA_P) {
+            case ETA_P_COMM:
+            case 0:
+                delvp = domain.delv_eta(domain.letap(ielem));
+                break;
+            case ETA_P_SYMM:
+                delvp = domain.delv_eta(ielem);
+                break;
+            case ETA_P_FREE:
+                delvp = Real_t(0.0);
+                break;
+            default:
+                delvp = Real_t(0.0);
+        }
+
+        delvm *= norm;
+        delvp *= norm;
+
+        phieta = Real_t(.5) * (delvm + delvp);
+
+        delvm *= monoq_limiter_mult;
+        delvp *= monoq_limiter_mult;
+
+        if (delvm < phieta) phieta = delvm;
+        if (delvp < phieta) phieta = delvp;
+        if (phieta < Real_t(0.0)) phieta = Real_t(0.0);
+        if (phieta > monoq_max_slope) phieta = monoq_max_slope;
+
+        /*---------------------------------------------------*
+         |                 Direction  ζ                     |
+         *---------------------------------------------------*/
+
+        norm = Real_t(1.0) / (domain.delv_zeta(ielem) + ptiny);
+
+        switch (bcMask & ZETA_M) {
+            case ZETA_M_COMM:
+            case 0:
+                delvm = domain.delv_zeta(domain.lzetam(ielem));
+                break;
+            case ZETA_M_SYMM:
+                delvm = domain.delv_zeta(ielem);
+                break;
+            case ZETA_M_FREE:
+                delvm = Real_t(0.0);
+                break;
+            default:
+                delvm = Real_t(0.0);
+        }
+
+        switch (bcMask & ZETA_P) {
+            case ZETA_P_COMM:
+            case 0:
+                delvp = domain.delv_zeta(domain.lzetap(ielem));
+                break;
+            case ZETA_P_SYMM:
+                delvp = domain.delv_zeta(ielem);
+                break;
+            case ZETA_P_FREE:
+                delvp = Real_t(0.0);
+                break;
+            default:
+                delvp = Real_t(0.0);
+        }
+
+        delvm *= norm;
+        delvp *= norm;
+
+        phizeta = Real_t(.5) * (delvm + delvp);
+
+        delvm *= monoq_limiter_mult;
+        delvp *= monoq_limiter_mult;
+
+        if (delvm < phizeta) phizeta = delvm;
+        if (delvp < phizeta) phizeta = delvp;
+        if (phizeta < Real_t(0.0)) phizeta = Real_t(0.0);
+        if (phizeta > monoq_max_slope) phizeta = monoq_max_slope;
+
+        /*---------------------------------------------------*
+         |               Calcul final qlin / qquad          |
+         *---------------------------------------------------*/
+
+        if (domain.vdov(ielem) > Real_t(0.0)) {
+            qlin = Real_t(0.0);
+            qquad = Real_t(0.0);
+        }
+        else {
+            Real_t delv_xi_s   = domain.delv_xi(ielem)   * domain.delx_xi(ielem);
+            Real_t delv_eta_s  = domain.delv_eta(ielem)  * domain.delx_eta(ielem);
+            Real_t delv_zeta_s = domain.delv_zeta(ielem) * domain.delx_zeta(ielem);
+
+            if (delv_xi_s   > Real_t(0.0)) delv_xi_s   = Real_t(0.0);
+            if (delv_eta_s  > Real_t(0.0)) delv_eta_s  = Real_t(0.0);
+            if (delv_zeta_s > Real_t(0.0)) delv_zeta_s = Real_t(0.0);
+
+            Real_t rho = domain.elemMass(ielem) /
+                         (domain.volo(ielem) * domain.vnew(ielem));
+
+            qlin = -qlc_monoq * rho * (
+                delv_xi_s   * (Real_t(1.0) - phixi) +
+                delv_eta_s  * (Real_t(1.0) - phieta) +
+                delv_zeta_s * (Real_t(1.0) - phizeta)
+            );
+
+            qquad = qqc_monoq * rho * (
+                delv_xi_s*delv_xi_s     * (Real_t(1.0) - phixi*phixi) +
+                delv_eta_s*delv_eta_s   * (Real_t(1.0) - phieta*phieta) +
+                delv_zeta_s*delv_zeta_s * (Real_t(1.0) - phizeta*phizeta)
+            );
+        }
+
+        domain.ql(ielem) = qlin;
+        domain.qq(ielem) = qquad;
+    });
+}
+
+/*
+   Calcule l’artificial viscosity monotone pour tous les éléments,
+   région par région.
+   对所有区域逐个计算单调人工粘性 Q。
+*/
+KOKKOS_INLINE_FUNCTION
+void CalcMonotonicQForElems(Domain& domain)
+{
+    /* 
+       ptiny est une petite valeur pour éviter la division par zéro.
+       ptiny 是用于避免除零的小量。
+    */
+    const Real_t ptiny = Real_t(1.e-36);
+
+    /* 
+       Parcourt toutes les régions.
+       遍历所有区域。
+    */
+    for (Index_t r = 0; r < domain.numReg(); ++r) {
+
+        /* 
+           Si la région contient au moins un élément，则进行计算。
+           如果区域内包含至少一个单元，则进行计算。
+        */
+        if (domain.regElemSize(r) > 0) {
+
+            /* 
+               Appel device-ready : fonctionne en CPU ou GPU。
+               设备可调用版本：可在 CPU/GPU 运行。
+            */
+            CalcMonotonicQRegionForElems(domain, r, ptiny);
+        }
+    }
+}
+
+/*
+   Calcule la viscosité artificielle Q pour tous les éléments.
+   对所有单元计算人工粘性 Q。
+*/
+KOKKOS_INLINE_FUNCTION
+void CalcQForElems(Domain& domain)
+{
+    /* 
+       Nombre total d’éléments locaux.
+       本地单元总数。
+    */
+    Index_t numElem = domain.numElem();
+
+    if (numElem == 0) {
+        return;
     }
 
-    if (eosvmax != Real_t(0.)) {
-      // 若设置了体积上界，则进行限制
-      // Si un volume maximal est défini, applique la limite.
+    /*
+       allElem = nombre total incluant les ghost layers。
+       allElem = 含幽灵层在内的全部元素数量。
+      （在 MPI=0 时，domain.AllocateGradients 仍需要此尺寸参数）
+    */
+    Int_t allElem =
+          numElem
+        + 2 * domain.sizeX() * domain.sizeY()
+        + 2 * domain.sizeX() * domain.sizeZ()
+        + 2 * domain.sizeY() * domain.sizeZ();
 
-      Kokkos::parallel_for("ApplyMaterialPropertiesForElems C", numElem,
-                           KOKKOS_LAMBDA(const int i) {
-        if (vnewc[i] > eosvmax)
-          vnewc[i] = eosvmax;
-        // 体积不能大于最大值
-        // Le volume ne peut pas dépasser le maximum.
-      });
+    /*
+       Alloue les gradients nécessaires pour delv_xi, delv_eta, delv_zeta.
+       为 delv_xi / delv_eta / delv_zeta 分配存储。
+    */
+    domain.AllocateGradients(numElem, allElem);
+
+    /*
+       Calcule les gradients de vitesse。
+       计算速度梯度。
+    */
+    CalcMonotonicQGradientsForElems(domain);
+
+    /*
+       Calcule Q monotone pour chaque région。
+       对每个区域计算单调人工粘性 Q。
+    */
+    {
+        const Real_t ptiny = Real_t(1.e-36);
+
+        for (Index_t r = 0; r < domain.numReg(); ++r) {
+            if (domain.regElemSize(r) > 0) {
+                CalcMonotonicQRegionForElems(domain, r, ptiny);
+            }
+        }
     }
 
-    Kokkos::parallel_for(numElem, [=](const int i) {
-      Real_t vc = domain.v(i);
-      // 旧体积 vc
-      // Ancien volume vc.
+    /*
+       Libère les données de gradient。
+       释放梯度内存。
+    */
+    domain.DeallocateGradients();
 
-      if (eosvmin != Real_t(0.)) {
-        if (vc < eosvmin)
-          vc = eosvmin;
-        // 检查旧体积是否过小
-        // Vérifie si l’ancien volume est trop petit.
-      }
+    /*
+       Vérifie si un élément dépasse la limite QStop。
+       检查是否有单元超过 QStop 阈值。
+    */
+    Index_t idx = -1;
 
-      if (eosvmax != Real_t(0.)) {
-        if (vc > eosvmax)
-          vc = eosvmax;
-        // 检查旧体积是否过大
-        // Vérifie si l’ancien volume est trop grand.
-      }
+    for (Index_t i = 0; i < numElem; ++i) {
+        if (domain.q(i) > domain.qstop()) {
+            idx = i;
+            break;
+        }
+    }
 
-      if (vc <= 0.) {
-        // 体积非法 → 终止程序
-        // Volume non physique → arrêt du programme.
-#if USE_MPI
-        MPI_Abort(MPI_COMM_WORLD, VolumeError);
-#else
-        exit(VolumeError);
-#endif
-      }
+    /* 
+       Si Q dépasse la limite, arrêter le programme（MPI=0）。
+       如果 Q 超过限制，则退出程序（MPI=0）。
+    */
+    if (idx >= 0) {
+        exit(QStopError);
+    }
+}
+
+/*
+   Calcule la pression pour chaque élément d'une région.
+   根据区域内的元素计算压力（p_new）。
+*/
+KOKKOS_INLINE_FUNCTION
+void CalcPressureForElems(Real_t* p_new,
+                          Real_t* bvc,
+                          Real_t* pbvc,
+                          Real_t* e_old,
+                          Real_t* compression,
+                          Real_t* vnewc,
+                          Real_t  pmin,
+                          Real_t  p_cut,
+                          Real_t  eosvmax,
+                          Index_t length,
+                          Index_t* regElemList)
+{
+    /* 
+       Première boucle : calcul de bvc[] et pbvc[]
+       第一阶段：计算 bvc 与 pbvc
+    */
+    Kokkos::parallel_for(
+        "CalcPressureForElems_stage1",
+        Kokkos::RangePolicy<ExecSpace>(0, length),
+        KOKKOS_LAMBDA(const Index_t i)
+    {
+        Real_t c1s = Real_t(2.0) / Real_t(3.0);
+        bvc[i]  = c1s * (compression[i] + Real_t(1.0));
+        pbvc[i] = c1s;
     });
 
-    // 为每个区域调用 EOS（方程状态）
-    // Appelle l’EOS (équation d’état) pour chaque région.
+    /* 
+       Deuxième boucle : calcule p_new[i] à partir de e_old et contraintes EOS.
+       第二阶段：根据旧能量 e_old 和 EOS 限制计算新的压力 p_new。
+    */
+    Kokkos::parallel_for(
+        "CalcPressureForElems_stage2",
+        Kokkos::RangePolicy<ExecSpace>(0, length),
+        KOKKOS_LAMBDA(const Index_t i)
+    {
+        Index_t ielem = regElemList[i];
 
+        // p_new = bvc * e_old
+        // 基础压力公式：p_new = bvc * e_old
+        Real_t ptmp = bvc[i] * e_old[i];
+        p_new[i] = ptmp;
+
+        // |p| < p_cut → p = 0
+        // 绝对值太小则置为 0
+        if (FABS(p_new[i]) < p_cut) {
+            p_new[i] = Real_t(0.0);
+        }
+
+        // 如果体积超过上限（通常不会触发）
+        if (vnewc[ielem] >= eosvmax) {
+            p_new[i] = Real_t(0.0);
+        }
+
+        // 限制最低压力
+        if (p_new[i] < pmin) {
+            p_new[i] = pmin;
+        }
+    });
+}
+
+/*
+   Met à jour l'énergie interne, la pression et la viscosité artificielle q
+   更新单元的内部能量、压力 p_new、人工粘性 q_new
+*/
+KOKKOS_INLINE_FUNCTION
+void CalcEnergyForElems(Real_t* p_new, Real_t* e_new, Real_t* q_new,
+                        Real_t* bvc, Real_t* pbvc,
+                        Real_t* p_old, Real_t* e_old, Real_t* q_old,
+                        Real_t* compression, Real_t* compHalfStep,
+                        Real_t* vnewc, Real_t* work, Real_t* delvc,
+                        Real_t pmin, Real_t p_cut, Real_t e_cut,
+                        Real_t q_cut, Real_t emin,
+                        Real_t* qq_old, Real_t* ql_old,
+                        Real_t rho0,
+                        Real_t eosvmax,
+                        Index_t length, Index_t* regElemList)
+{
+    /* 
+       Tableau temporaire pHalfStep utilisé par l'EOS.
+       EOS 中间步骤压力 pHalfStep。
+    */
+    Real_t* pHalfStep = Allocate<Real_t>(length);
+
+    /*--------------------------------------------------------------*
+     |  Étape 1 : calcul initial de e_new                           |
+     |  第 1 阶段：计算内部能量 e_new（初步更新）                     |
+     *--------------------------------------------------------------*/
+    Kokkos::parallel_for(
+        "CalcEnergyForElems_e_new_stage1",
+        Kokkos::RangePolicy<ExecSpace>(0, length),
+        KOKKOS_LAMBDA(const Index_t i)
+    {
+        // e_new = e_old - 1/2 * delvc * (p_old + q_old) + 1/2 * work
+        // 第一次能量更新公式
+        Real_t en = e_old[i]
+            - Real_t(0.5) * delvc[i] * (p_old[i] + q_old[i])
+            + Real_t(0.5) * work[i];
+
+        // Clip to minimum
+        // 限制不能低于 emin
+        if (en < emin) {
+            en = emin;
+        }
+
+        e_new[i] = en;
+    });
+
+    /*--------------------------------------------------------------*
+     |  Étape 2 : calcul de pression pHalfStep                      |
+     |  第 2 阶段：用初始 e_new 计算第一次压力 pHalfStep             |
+     *--------------------------------------------------------------*/
+    CalcPressureForElems(
+        pHalfStep,
+        bvc, pbvc,
+        e_new,
+        compHalfStep,
+        vnewc,
+        pmin, p_cut, eosvmax,
+        length,
+        regElemList
+    );
+
+        /*--------------------------------------------------------------*
+     |  Étape 3 : calcul de q_new (1ère version)                    |
+     |  第 3 阶段：计算一次更新后的 q_new                           |
+     *--------------------------------------------------------------*/
+    Kokkos::parallel_for(
+        "CalcEnergyForElems_q_new_stage1",
+        Kokkos::RangePolicy<ExecSpace>(0, length),
+        KOKKOS_LAMBDA(const Index_t i)
+    {
+        Index_t ielem = regElemList[i];
+        Real_t vhalf = Real_t(1.0) / (Real_t(1.0) + compHalfStep[i]);
+
+        if (delvc[i] > Real_t(0.0)) {
+            // Expansion → no viscous term
+            // 膨胀过程 → 人工粘性为 0
+            q_new[i] = Real_t(0.0);
+        }
+        else {
+            // ssc = speed of sound squared (scaled)
+            // ssc = 声速相关参数
+            Real_t ssc =
+                  ( pbvc[i] * e_new[i]
+                  + vhalf * vhalf * bvc[i] * pHalfStep[i] ) / rho0;
+
+            if (ssc <= Real_t(1.111111e-37)) {
+                ssc = Real_t(3.333333e-19);
+            } else {
+                ssc = SQRT(ssc);
+            }
+
+            // q_new = ssc * ql_old + qq_old
+            // 线性+二次人工粘性组合
+            q_new[i] = ssc * ql_old[i] + qq_old[i];
+        }
+
+        // 第二次能量更新准备
+        // e_new = e_new + 0.5 * delvc * (...)
+        // 具体表达式下一段完成
+    });
+
+    /*--------------------------------------------------------------*
+     |  Étape 4 : deuxième mise à jour de e_new                      |
+     |  第 4 阶段：对 e_new 进行第二次更新                           |
+     *--------------------------------------------------------------*/
+    Kokkos::parallel_for(
+        "CalcEnergyForElems_e_new_stage2",
+        Kokkos::RangePolicy<ExecSpace>(0, length),
+        KOKKOS_LAMBDA(const Index_t i)
+    {
+        Index_t ielem = regElemList[i];
+
+        // e_new += 0.5 * delvc * (3*(p_old+q_old) - 4*(pHalfStep+q_new))
+        // 内部能量第二次修正
+        e_new[i] = e_new[i] +
+            Real_t(0.5) * delvc[i] *
+            ( Real_t(3.0) * (p_old[i] + q_old[i])
+            - Real_t(4.0) * (pHalfStep[i] + q_new[i]) );
+    });
+
+    /*--------------------------------------------------------------*
+     |  Étape 5 : corriger e_new et recalculer p avec EOS           |
+     |  第 5 阶段：根据阈值修正 e_new，并重新计算压力 p_new          |
+     *--------------------------------------------------------------*/
+    Kokkos::parallel_for(
+        "CalcEnergyForElems_e_new_stage3_cleanup",
+        Kokkos::RangePolicy<ExecSpace>(0, length),
+        KOKKOS_LAMBDA(const Index_t i)
+    {
+        // Ajoute travail résiduel
+        // 加上剩余 work
+        e_new[i] += Real_t(0.5) * work[i];
+
+        // |e| < e_cut → 0
+        if (FABS(e_new[i]) < e_cut)
+            e_new[i] = Real_t(0.0);
+
+        // e < emin → clip
+        if (e_new[i] < emin)
+            e_new[i] = emin;
+    });
+
+    /*--------------------------------------------------------------*
+     |  Étape 6 : recalcul de p_new après correction d'énergie      |
+     |  第 6 阶段：能量修正后重新计算压力 p_new                      |
+     *--------------------------------------------------------------*/
+    CalcPressureForElems(
+        p_new,
+        bvc, pbvc,
+        e_new,
+        compression,
+        vnewc,
+        pmin, p_cut, eosvmax,
+        length,
+        regElemList
+    );
+
+        /*--------------------------------------------------------------*
+     |  Étape 7 : calcul final de q_tilde                            |
+     |  第 7 阶段：计算最终人工粘性 q_tilde                         |
+     *--------------------------------------------------------------*/
+    Kokkos::parallel_for(
+        "CalcEnergyForElems_q_tilde_final",
+        Kokkos::RangePolicy<ExecSpace>(0, length),
+        KOKKOS_LAMBDA(const Index_t i)
+    {
+        const Real_t sixth = Real_t(1.0) / Real_t(6.0);
+        Index_t ielem = regElemList[i];
+        Real_t q_tilde;
+
+        if (delvc[i] > Real_t(0.0)) {
+            // Expansion → no viscosity
+            // 膨胀过程 → 人工粘性为 0
+            q_tilde = Real_t(0.0);
+        }
+        else {
+            // Speed-of-sound-like term
+            // 声速相关参数
+            Real_t ssc =
+                ( pbvc[i] * e_new[i]
+                + vnewc[ielem] * vnewc[ielem] * bvc[i] * p_new[i] ) / rho0;
+
+            if (ssc <= Real_t(1.111111e-37)) {
+                ssc = Real_t(3.333333e-19);
+            }
+            else {
+                ssc = SQRT(ssc);
+            }
+
+            // Final viscous term
+            // 最终人工粘性
+            q_tilde = ssc * ql_old[i] + qq_old[i];
+        }
+
+        // e_new = e_new − (7*(p_old+q_old) − 8*(pHalfStep+q_new) + (p_new+q_tilde)) * delvc/6
+        // e_new 最终修正
+        e_new[i] =
+            e_new[i]
+            - (  Real_t(7.0) * (p_old[i] + q_old[i])
+               - Real_t(8.0) * (pHalfStep[i] + q_new[i])
+               + (p_new[i] + q_tilde) )
+              * delvc[i] * sixth;
+
+        // Nettoyage basé sur e_cut et emin
+        // 根据 e_cut 和 emin 清理
+        if (FABS(e_new[i]) < e_cut) {
+            e_new[i] = Real_t(0.0);
+        }
+        if (e_new[i] < emin) {
+            e_new[i] = emin;
+        }
+    });
+
+    /*--------------------------------------------------------------*
+     |  Étape 8 : recalcul final de p_new et limitation de q_new    |
+     |  第 8 阶段：最终计算压力 p_new，并对 q_new 应用阈值限制       |
+     *--------------------------------------------------------------*/
+    CalcPressureForElems(
+        p_new,
+        bvc, pbvc,
+        e_new,
+        compression,
+        vnewc,
+        pmin, p_cut, eosvmax,
+        length,
+        regElemList
+    );
+
+    Kokkos::parallel_for(
+        "CalcEnergyForElems_q_new_clamp",
+        Kokkos::RangePolicy<ExecSpace>(0, length),
+        KOKKOS_LAMBDA(const Index_t i)
+    {
+        Index_t ielem = regElemList[i];
+
+        if (delvc[i] <= Real_t(0.0)) {
+            // Compute ssc again
+            Real_t ssc =
+                ( pbvc[i] * e_new[i]
+                + vnewc[ielem] * vnewc[ielem] * bvc[i] * p_new[i] ) / rho0;
+
+            if (ssc <= Real_t(1.111111e-37)) {
+                ssc = Real_t(3.333333e-19);
+            }
+            else {
+                ssc = SQRT(ssc);
+            }
+
+            q_new[i] = ssc * ql_old[i] + qq_old[i];
+
+            // Apply q_cut
+            // 应用人工粘性阈值
+            if (FABS(q_new[i]) < q_cut) {
+                q_new[i] = Real_t(0.0);
+            }
+        }
+    });
+
+    /*--------------------------------------------------------------*
+     |  Étape 9 : libération des tableaux temporaires               |
+     |  第 9 阶段：释放所有临时数组                                 |
+     *--------------------------------------------------------------*/
+    Release(&pHalfStep);
+    // NOTE：下列数组由外层 EvalEOSForElems 释放，而非此函数
+    // 注意：其他临时数组由 EvalEOSForElems 统一管理，不应在此释放
+}
+
+/*
+   Évalue l’équation d’état (EOS) pour une région donnée.
+   为指定区域计算状态方程（EOS）。
+   （GPU-ready 版本：所有临时数组均使用 Kokkos::View）
+*/
+
+void EvalEOSForElems(
+    Domain& domain,
+    Real_t *vnewc,                // 已在调用方分配的 Kokkos::View.data()
+    Int_t numElemReg,             // 该区域含多少单元
+    Index_t *regElemList,         // 该区域的单元编号列表（由 Domain 提供）
+    Int_t rep                     // 重复次数，用于 workload imbalance
+)
+{
+    /* --- paramètres EOS --- */
+    Real_t e_cut   = domain.e_cut();
+    Real_t p_cut   = domain.p_cut();
+    Real_t ss4o3   = domain.ss4o3();
+    Real_t q_cut   = domain.q_cut();
+
+    Real_t eosvmax = domain.eosvmax();
+    Real_t eosvmin = domain.eosvmin();
+    Real_t pmin    = domain.pmin();
+    Real_t emin    = domain.emin();
+    Real_t rho0    = domain.refdens();
+
+    using ES = ExecSpace;
+
+    /* ---------------------------------------------
+       创建所有临时数组（device-ready）
+       所有数组大小为 numElemReg
+       --------------------------------------------- */
+
+    Kokkos::View<Real_t*> e_old("e_old", numElemReg);
+    Kokkos::View<Real_t*> delvc("delvc", numElemReg);
+    Kokkos::View<Real_t*> p_old("p_old", numElemReg);
+    Kokkos::View<Real_t*> q_old("q_old", numElemReg);
+    Kokkos::View<Real_t*> compression("compression", numElemReg);
+    Kokkos::View<Real_t*> compHalfStep("compHalfStep", numElemReg);
+    Kokkos::View<Real_t*> qq_old("qq_old", numElemReg);
+    Kokkos::View<Real_t*> ql_old("ql_old", numElemReg);
+    Kokkos::View<Real_t*> work("work", numElemReg);
+    Kokkos::View<Real_t*> p_new("p_new", numElemReg);
+    Kokkos::View<Real_t*> e_new("e_new", numElemReg);
+    Kokkos::View<Real_t*> q_new("q_new", numElemReg);
+    Kokkos::View<Real_t*> bvc("bvc", numElemReg);
+    Kokkos::View<Real_t*> pbvc("pbvc", numElemReg);
+
+    /* 
+       因为 regElemList 是 host pointer，
+       我们复制到 device View 以便 Kokkos lambda 使用。
+       因此 GPU 完全可用。
+    */
+
+    Kokkos::View<Index_t*> devElemList("devElemList", numElemReg);
+    {
+        auto host = Kokkos::create_mirror_view(devElemList);
+        for (Int_t i = 0; i < numElemReg; i++) host(i) = regElemList[i];
+        Kokkos::deep_copy(devElemList, host);
+    }
+
+    /* ----------------------------------------------------
+       主循环：重复 rep 次（用于 load imbalance）
+       每次重复都执行完整 EOS 更新流程
+       ---------------------------------------------------- */
+    for (Int_t j = 0; j < rep; j++) {
+
+        /* 
+           STEP 1:
+           压缩 e_old / delvc / p_old / q_old / qq_old / ql_old
+           法语：charger les anciennes valeurs des éléments。
+        */
+        Kokkos::parallel_for(
+            "EOS_load_old",
+            Kokkos::RangePolicy<ES>(0, numElemReg),
+            KOKKOS_LAMBDA(const Index_t i)
+        {
+            Index_t ielem = devElemList(i);
+
+            e_old(i)  = domain.e(ielem);
+            delvc(i)  = domain.delv(ielem);
+            p_old(i)  = domain.p(ielem);
+            q_old(i)  = domain.q(ielem);
+            qq_old(i) = domain.qq(ielem);
+            ql_old(i) = domain.ql(ielem);
+        });
+
+        /* 
+           STEP 2:
+           计算 compression[i] = 1/vnew - 1
+           计算 compHalfStep[i] = 1/v_half - 1
+           法语：calculer la compression et demie-compression。
+        */
+        Kokkos::parallel_for(
+            "EOS_compression",
+            Kokkos::RangePolicy<ES>(0, numElemReg),
+            KOKKOS_LAMBDA(const Index_t i)
+        {
+            Index_t ielem = devElemList(i);
+
+            Real_t vchalf = vnewc[ielem] - delvc(i) * Real_t(0.5);
+            compression(i)   = Real_t(1.0)/vnewc[ielem] - Real_t(1.0);
+            compHalfStep(i)  = Real_t(1.0)/vchalf       - Real_t(1.0);
+        });
+
+        /* 
+           STEP 3:
+           边界检查：处理 eosvmin / eosvmax 对压缩量的裁剪
+           法语：contrôle des volumes limites。
+        */
+        if (eosvmin != Real_t(0.0)) {
+            Kokkos::parallel_for(
+                "EOS_eosvmin_check",
+                Kokkos::RangePolicy<ES>(0, numElemReg),
+                KOKKOS_LAMBDA(const Index_t i)
+            {
+                Index_t ielem = devElemList(i);
+                if (vnewc[ielem] <= eosvmin) {
+                    compHalfStep(i) = compression(i);
+                }
+            });
+        }
+
+        if (eosvmax != Real_t(0.0)) {
+            Kokkos::parallel_for(
+                "EOS_eosvmax_check",
+                Kokkos::RangePolicy<ES>(0, numElemReg),
+                KOKKOS_LAMBDA(const Index_t i)
+            {
+                Index_t ielem = devElemList(i);
+                if (vnewc[ielem] >= eosvmax) {
+                    p_old(i)        = Real_t(0.0);
+                    compression(i)  = Real_t(0.0);
+                    compHalfStep(i) = Real_t(0.0);
+                }
+            });
+        }
+
+        /* 
+           STEP 4:
+           初始化 work = 0
+           法语：initialiser work à zéro。
+        */
+        Kokkos::parallel_for(
+            "EOS_reset_work",
+            Kokkos::RangePolicy<ES>(0, numElemReg),
+            KOKKOS_LAMBDA(const Index_t i)
+        {
+            work(i) = Real_t(0.0);
+        });
+
+        /* 
+           STEP 5:
+           调用 GPU-ready CalcEnergyForElems（上一部分已移植）
+        */
+        CalcEnergyForElems(
+            p_new, e_new, q_new, bvc, pbvc,
+            p_old, e_old, q_old,
+            compression, compHalfStep,
+            vnewc, work, delvc,
+            pmin, p_cut, e_cut, q_cut, emin,
+            qq_old, ql_old, rho0, eosvmax,
+            numElemReg, devElemList.data()
+        );
+    } // end for(rep)
+
+    /* -------------------------------
+       将 e_new / p_new / q_new 写回 Domain
+       法语：mettre à jour le domaine。
+       ------------------------------- */
+    Kokkos::parallel_for(
+        "EOS_writeback",
+        Kokkos::RangePolicy<ES>(0, numElemReg),
+        KOKKOS_LAMBDA(const Index_t i)
+    {
+        Index_t ielem = devElemList(i);
+        domain.p(ielem) = p_new(i);
+        domain.e(ielem) = e_new(i);
+        domain.q(ielem) = q_new(i);
+    });
+
+    /* 
+       STEP 7:
+       计算 Sound Speed（调用已移植的 GPU-ready 函数）
+    */
+    CalcSoundSpeedForElems(
+        domain,
+        vnewc, rho0,
+        e_new.data(), p_new.data(),
+        pbvc.data(), bvc.data(),
+        ss4o3,
+        numElemReg, devElemList.data()
+    );
+}
+
+/*
+   Applique les propriétés matériaux aux éléments.
+   为所有单元应用材料属性。
+   （GPU-ready：所有循环迁移至 Kokkos::parallel_for）
+*/
+void ApplyMaterialPropertiesForElems(Domain& domain)
+{
+    Index_t numElem = domain.numElem();
+    if (numElem == 0) return;
+
+    using ES = ExecSpace;
+
+    /* ----------------------------------------------------------
+       Préparer les volumes relatifs vnewc（新体积的副本）
+       由于 vnewc 是临时量，因此在 device 上缓存 View
+       ---------------------------------------------------------- */
+    Kokkos::View<Real_t*> vnewc("vnewc", numElem);
+
+    /* 
+       Charger vnewc depuis domain.vnew(i)
+       从 domain 复制 vnew(i) → vnewc(i)
+    */
+    Kokkos::parallel_for(
+        "Load_vnewc",
+        Kokkos::RangePolicy<ES>(0, numElem),
+        KOKKOS_LAMBDA(const Index_t i)
+    {
+        vnewc(i) = domain.vnew(i);
+    });
+
+    /* 
+       Récupérer les bornes EOS（eosvmin / eosvmax）
+       读取 EOS 模型的体积限制
+    */
+    const Real_t eosvmin = domain.eosvmin();
+    const Real_t eosvmax = domain.eosvmax();
+
+    /* ----------------------------------------------------------
+       Contraindre vnewc dans [eosvmin, eosvmax]
+       将 vnewc 限制在 EOS 允许范围内。
+       ---------------------------------------------------------- */
+    if (eosvmin != Real_t(0.0)) {
+        Kokkos::parallel_for(
+            "Clamp_vnewc_min",
+            Kokkos::RangePolicy<ES>(0, numElem),
+            KOKKOS_LAMBDA(const Index_t i)
+        {
+            if (vnewc(i) < eosvmin)
+                vnewc(i) = eosvmin;
+        });
+    }
+
+    if (eosvmax != Real_t(0.0)) {
+        Kokkos::parallel_for(
+            "Clamp_vnewc_max",
+            Kokkos::RangePolicy<ES>(0, numElem),
+            KOKKOS_LAMBDA(const Index_t i)
+        {
+            if (vnewc(i) > eosvmax)
+                vnewc(i) = eosvmax;
+        });
+    }
+
+    /* ----------------------------------------------------------
+       Vérifier les anciens volumes domain.v(i)
+       （这在原代码中虽不完全合理，但保持一致性）
+       检查旧体积 v(i) 是否在合理范围内
+       ---------------------------------------------------------- */
+    Kokkos::parallel_for(
+        "Check_old_v",
+        Kokkos::RangePolicy<ES>(0, numElem),
+        KOKKOS_LAMBDA(const Index_t i)
+    {
+        Real_t vc = domain.v(i);
+
+        if (eosvmin != Real_t(0.0)) {
+            if (vc < eosvmin)
+                vc = eosvmin;
+        }
+        if (eosvmax != Real_t(0.0)) {
+            if (vc > eosvmax)
+                vc = eosvmax;
+        }
+
+        /* 
+           Si volume < 0 → erreur fatale（MPI = 0）
+           如果体积负 → 程序终止
+        */
+        if (vc <= 0.0) {
+            exit(VolumeError);
+        }
+    });
+
+    /* ----------------------------------------------------------
+       Boucler sur chaque région r
+       对每个区域调用 EvalEOSForElems（GPU-ready 版本）
+       ---------------------------------------------------------- */
     for (Int_t r = 0; r < domain.numReg(); r++) {
-      Index_t numElemReg = domain.regElemSize(r);
-      Index_t *regElemList = domain.regElemlist(r);
-      // 区域维度与区域元素列表
-      // Taille de la région et liste des éléments de la région.
 
-      Int_t rep;
-      if (r < domain.numReg() / 2)
-        rep = 1;
-      // 前半区域：1 次迭代
-      // Première moitié des régions : 1 itération.
+        Index_t numElemReg = domain.regElemSize(r);
+        if (numElemReg == 0) continue;
 
-      else if (r < (domain.numReg() - (domain.numReg() + 15) / 20))
-        rep = 1 + domain.cost();
-      // 中间区域：1 + cost 次迭代
-      // Régions intermédiaires : 1 + cost itérations.
+        Index_t* regElemList = domain.regElemlist(r);
 
-      else
-        rep = 10 * (1 + domain.cost());
-      // 最后 5% 区域：10×(1 + cost)
-      // Derniers 5% : 10×(1 + cost).
+        /* 
+           Déterminer le coût（workload imbalance simulation）
+           决定该区域的 rep 次数（模拟负载不均衡）
+        */
+        Int_t rep;
+        if (r < domain.numReg() / 2)
+            rep = 1;
+        else if (r < (domain.numReg() - (domain.numReg() + 15) / 20))
+            rep = 1 + domain.cost();
+        else
+            rep = 10 * (1 + domain.cost());
 
-      EvalEOSForElems(domain, vnewc, numElemReg, regElemList, rep);
-      // 调用 EOS 更新压力、能量、人工粘性、声速
-      // Appelle l’EOS pour mettre à jour pression, énergie, viscosité, vitesse du son.
+        /* 
+           Appeler la version GPU de EvalEOSForElems
+           调用已移植的 GPU-ready 状态方程（EOS）计算函数
+        */
+        EvalEOSForElems(
+            domain,
+            vnewc.data(),     // device pointer
+            numElemReg,
+            regElemList,      // host pointer → EvalEOS 内部会复制
+            rep
+        );
     }
 
-    Release(&vnewc);
-    // 释放内存
-    // Libère la mémoire.
-  }
+    /* 
+       vnewc 将在函数结束时自动释放
+       无需手动 Release()
+    */
 }
 
-static inline void UpdateVolumesForElems(Domain &domain, Real_t v_cut,
-                                         Index_t length) {
-  if (length != 0) {
-    // 若没有元素则无需更新
-    // Aucun calcul si aucun élément.
+/*
+   Met à jour les volumes des éléments après l'étape Lagrangienne.
+   在拉格朗日更新步骤后更新单元体积 v(i)。
 
-    Kokkos::parallel_for("UpdateVolumesForElems", length,
-                         KOKKOS_LAMBDA(const int i) {
-      Real_t tmpV = domain.vnew(i);
-      // 获取新体积
-      // Récupère le nouveau volume.
+   GPU-ready：使用 Kokkos::parallel_for。
+*/
+KOKKOS_INLINE_FUNCTION
+void UpdateVolumesForElems(Domain &domain,
+                           Real_t v_cut,   // seuil pour correction du volume
+                           Index_t length) // nombre total d’éléments
+{
+    if (length == 0) return;
 
-      if (FABS(tmpV - Real_t(1.0)) < v_cut)
-        tmpV = Real_t(1.0);
-      // 若非常接近 1，则强制为 1（避免数值噪声）
-      // Si très proche de 1, force à 1 pour réduire le bruit numérique.
+    using ES = ExecSpace;
 
-      domain.v(i) = tmpV;
-      // 更新到当前体积 v
-      // Met à jour le volume courant v.
+    Kokkos::parallel_for(
+        "UpdateVolumesForElems",
+        Kokkos::RangePolicy<ES>(0, length),
+        KOKKOS_LAMBDA(const Index_t i)
+    {
+        /* 
+           tmpV = vnew(i)
+           新体积读取
+        */
+        Real_t tmpV = domain.vnew(i);
+
+        /* 
+           Si |tmpV - 1.0| < v_cut → forcer tmpV = 1.0
+           如果体积变化非常小，则直接设为 1.0
+           （这是 LULESH 中用于稳定性的经验规则）
+        */
+        if (FABS(tmpV - Real_t(1.0)) < v_cut) {
+            tmpV = Real_t(1.0);
+        }
+
+        /* 
+           Écrit le volume final dans domain.v(i)
+           写回最终体积
+        */
+        domain.v(i) = tmpV;
     });
-  }
-
-  return;
 }
 
-static inline void LagrangeElements(Domain &domain, Index_t numElem) {
-  CalcLagrangeElements(domain);
-  // 计算单元形变梯度与形状函数
-  // Calcule les déformations et dérivées de forme des éléments.
+/*
+   Avance la solution en appliquant les équations de Lagrange
+   pour les éléments.
+   对所有单元执行拉格朗日推进步骤（元素部分）。
 
-  CalcQForElems(domain);
-  // 计算人工粘性 Q
-  // Calcule la viscosité artificielle Q.
+   GPU-ready：内部调用的所有函数均已 Kokkos 并行化。
+*/
 
-  ApplyMaterialPropertiesForElems(domain);
-  // 应用材料性质 + 调用 EOS（压力/能量/声速）
-  // Applique les propriétés du matériau + appelle l’EOS.
+KOKKOS_INLINE_FUNCTION
+void LagrangeElements(Domain& domain, Index_t numElem)
+{
+    /*
+       Étape 1 : Calcul Lagrangien élémentaire
+       步骤 1：计算拉格朗日单元动力学（变形、应变率等）
+    */
+    CalcLagrangeElements(domain);
 
-  UpdateVolumesForElems(domain, domain.v_cut(), numElem);
-  // 更新体积（归一化处理）
-  // Met à jour les volumes (normalisation).
+    /*
+       Étape 2 : Calcul de la viscosité artificielle Q
+       步骤 2：计算人工粘性 Q（单调性版本）
+       注：内部调用 CalcMonotonicQGradientsForElems + CalcMonotonicQRegionForElems
+    */
+    CalcQForElems(domain);
+
+    /*
+       Étape 3 : Calcul des propriétés matériaux (EOS)
+       步骤 3：计算材料状态（EOS：压力、能量、声速等）
+       GPU-ready：EvalEOSForElems 已实现 Kokkos::View 完全并行
+    */
+    ApplyMaterialPropertiesForElems(domain);
+
+    /*
+       Étape 4 : Mise à jour des volumes v(i)
+       步骤 4：更新体积 v(i)
+       使用 GPU-ready 的 UpdateVolumesForElems
+    */
+    UpdateVolumesForElems(domain, 
+                          domain.v_cut(),  // seuil de correction 体积修正阈值
+                          numElem);        // nombre total 总单元数
 }
 
-static inline void CalcCourantConstraintForElems(Domain &domain, Index_t length,
-                                                 Index_t *regElemlist,
-                                                 Real_t qqc,
-                                                 Real_t &dtcourant) {
-#if _OPENMP
-  Index_t threads = omp_get_max_threads();
-  static Index_t *courant_elem_per_thread;
-  static Real_t *dtcourant_per_thread;
-  static bool first = true;
-  if (first) {
-    courant_elem_per_thread = new Index_t[threads];
-    dtcourant_per_thread = new Real_t[threads];
-    first = false;
-  }
-  // OpenMP 多线程数组初始化
-  // Initialisation des tableaux OpenMP pour le multithreading.
-#else
-  Index_t threads = 1;
-  Index_t courant_elem_per_thread[1];
-  Real_t dtcourant_per_thread[1];
-  // 单线程执行模式
-  // Mode d’exécution mono-thread.
-#endif
+/*
+   Calcule la contrainte de Courant pour un ensemble d’éléments.
+   计算 Courant 时间步约束（用于稳定性限制）。
+*/
+KOKKOS_INLINE_FUNCTION
+void CalcCourantConstraintForElems(
+    Domain& domain,
+    Index_t length,
+    Index_t* regElemlist_host,
+    Real_t qqc,
+    Real_t& dtcourant_out )
+{
+    if (length == 0) return;
 
-  typedef Kokkos::View<Real_t *> view_real_t;
-  view_real_t dtfV("A", length);
-  // Kokkos View 存放 dtf 值
-  // Vue Kokkos pour stocker les valeurs dtf.
+    using ES = ExecSpace;
 
-  {
+    /* ------------------------------------------------------------
+       Copier regElemlist depuis host vers device
+       将 regElemlist 从 host 复制到 device
+       ------------------------------------------------------------ */
+    Kokkos::View<Index_t*> regElemlist("regElemlist", length);
+    Kokkos::parallel_for(
+        "Copy_regElemlist",
+        Kokkos::RangePolicy<ES>(0, length),
+        KOKKOS_LAMBDA(const Index_t i) {
+            regElemlist(i) = regElemlist_host[i];
+        });
+
+    /* 
+       qqc2 = 64 * qqc^2
+       LULESH 原始公式
+    */
     Real_t qqc2 = Real_t(64.0) * qqc * qqc;
-    // 预计算 64 * qqc^2
-    // Pré-calcul de 64 * qqc^2.
 
-    Real_t dtcourant_tmp = dtcourant;
-    // 局部 Courant 时间步
-    // Pas de temps Courant local.
+    /* ------------------------------------------------------------
+       使用 Kokkos 并行规约寻找最小的 dt 值
+       ------------------------------------------------------------ */
 
-    Index_t courant_elem = -1;
-    // 最小时间步所属元素
-    // Élément associé au pas de temps minimum.
+    struct MinVal {
+        Real_t dt;
+        Index_t elem;
+    };
 
-#if _OPENMP
-    Index_t thread_num = omp_get_thread_num();
-    // 当前线程编号
-    // Numéro du thread courant.
-#else
-    Index_t thread_num = 0;
-    // 单线程：始终 0
-    // Mono-thread : toujours 0.
-#endif
-
-    Kokkos::parallel_for(length, [=](const int i) {
-      Index_t indx = regElemlist[i];
-      // 当前元素索引
-      // Indice de l’élément courant.
-
-      Real_t dtf = domain.ss(indx) * domain.ss(indx);
-      // 声速平方项
-      // Carré de la vitesse du son.
-
-      dtf = domain.ss(indx) * domain.ss(indx);
-
-      if (domain.vdov(indx) < Real_t(0.)) {
-        dtf = dtf +
-              qqc2 * domain.arealg(indx) * domain.arealg(indx) *
-                  domain.vdov(indx) * domain.vdov(indx);
-        // 若速度散度 < 0：加入人工粘性项
-        // Si divergence négative : ajoute le terme de viscosité artificielle.
-      }
-
-      dtf = SQRT(dtf);
-      // 求平方根
-      // Prend la racine carrée.
-
-      dtfV(i) = domain.arealg(indx) / dtf;
-      // 得到 dt 值候选
-      // Produit le pas de temps candidat.
-    });
-
-    MinFinder result;
-    // reduction 的结果结构
-    // Structure pour stocker le résultat de la réduction.
+    MinVal init;
+    init.dt = dtcourant_out;
+    init.elem = -1;
 
     Kokkos::parallel_reduce(
-        length,
-        KOKKOS_LAMBDA(const int &i, MinFinder &minf) {
-          MinFinder tmp(dtfV(i), i);
-          // 构造最小值候选
-          // Construit un candidat pour le minimum.
+        "CalcCourantConstraintForElems",
+        Kokkos::RangePolicy<ES>(0, length),
 
-          Index_t indx = regElemlist[i];
+        KOKKOS_LAMBDA(const Index_t i, MinVal& localMin)
+        {
+            Index_t indx = regElemlist(i);
 
-          if (domain.vdov(indx) != Real_t(0.)) {
-            minf += tmp;
-            // 仅当速度散度 ≠ 0 才用于限制
-            // Utilise seulement si divergence ≠ 0.
-          }
+            Real_t ss = domain.ss(indx);
+            Real_t arealg = domain.arealg(indx);
+            Real_t vdov = domain.vdov(indx);
+
+            Real_t dtf = ss * ss;
+
+            if (vdov < Real_t(0.0)) {
+                dtf += qqc2 * arealg * arealg * vdov * vdov;
+            }
+
+            dtf = SQRT(dtf);
+            dtf = arealg / dtf;
+
+            if (vdov != Real_t(0.0)) {
+                if (dtf < localMin.dt) {
+                    localMin.dt = dtf;
+                    localMin.elem = indx;
+                }
+            }
         },
-        result);
 
-    dtcourant_tmp = result.val;
-    // 得到最小 dt 值
-    // Récupère le minimum du pas de temps.
+        Kokkos::MinReducer<MinVal>(dtcourant_out)  // reducer
+    );
 
-    if (dtcourant_tmp > dtcourant) {
-      dtcourant_tmp = dtcourant;
-      // 不超过全局已有的 dtcourant
-      // Ne dépasse pas le dtcourant global.
-    }
-
-    courant_elem = result.i;
-    // 得到对应元素索引
-    // Récupère l’indice de l’élément correspondant.
-
-    dtcourant_per_thread[thread_num] = dtcourant_tmp;
-    courant_elem_per_thread[thread_num] = courant_elem;
-    // 保存该线程的最小值
-    // Sauvegarde du minimum pour ce thread.
-  }
-
-  if (courant_elem_per_thread[0] != -1) {
-    dtcourant = dtcourant_per_thread[0];
-    // 单线程情况下直接更新
-    // Mise à jour directe en mode mono-thread.
-  }
-
-  return;
+    // 最终 dtcourant_out 已在 reducer 中写入
 }
 
-static inline void CalcHydroConstraintForElems(Domain &domain, Index_t length,
-                                               Index_t *regElemlist,
-                                               Real_t dvovmax,
-                                               Real_t &dthydro) {
-#if _OPENMP
-  Index_t threads = omp_get_max_threads();
-  static Index_t *hydro_elem_per_thread;
-  static Real_t *dthydro_per_thread;
-  static bool first = true;
-  if (first) {
-    hydro_elem_per_thread = new Index_t[threads];
-    dthydro_per_thread = new Real_t[threads];
-    first = false;
-  }
-  // OpenMP：初始化线程局部数组
-  // OpenMP : initialisation des tableaux locaux aux threads.
-#else
-  Index_t threads = 1;
-  Index_t hydro_elem_per_thread[1];
-  Real_t dthydro_per_thread[1];
-  // 单线程模式
-  // Mode mono-thread.
-#endif
+/*
+   Calcule la contrainte hydro-dynamique sur le pas de temps.
+   计算流体力学时间步约束（基于体积变化率 vdov）。
+*/
+KOKKOS_INLINE_FUNCTION
+void CalcHydroConstraintForElems(
+    Domain& domain,
+    Index_t length,
+    Index_t* regElemlist_host, /* liste d’éléments sur host / host 上的单元列表 */
+    Real_t dvovmax,            /* seuil maximal sur |vdov| / 最大体积变化率 */
+    Real_t& dthydro_out        /* valeur de dt (réduction) / 输出的 dthydro */
+){
+    if (length == 0) return;
 
-  typedef Kokkos::View<Real_t *> view_real_t;
-  view_real_t dtdvovV("A", length);
-  // Kokkos View 保存每个元素的时间步候选
-  // Vue Kokkos pour stocker les pas de temps candidats.
+    using ES = ExecSpace;
 
-  {
-    Real_t dthydro_tmp = dthydro;
-    // 初始水动力时间步
-    // Pas de temps hydrodynamique initial.
+    /* ------------------------------------------------------------
+       Copier regElemlist vers device
+       将 regElemlist 从 host 复制到 device
+       ------------------------------------------------------------ */
+    Kokkos::View<Index_t*> regElemlist("regElemlist_hydro", length);
 
-    Index_t hydro_elem = -1;
-    // 存最小时间步的元素索引
-    // Indice de l’élément donnant le pas minimal.
-
-#if _OPENMP
-    Index_t thread_num = omp_get_thread_num();
-    // 当前线程编号
-    // Numéro du thread courant.
-#else
-    Index_t thread_num = 0;
-    // 单线程始终为 0
-    // Mono-thread : toujours 0.
-#endif
-
-    Kokkos::parallel_for(length, [=](const int i) {
-      Index_t indx = regElemlist[i];
-      // 当前元素索引
-      // Indice de l’élément courant.
-
-      if (domain.vdov(indx) != Real_t(0.)) {
-        dtdvovV(i) = dvovmax / (FABS(domain.vdov(indx)) + Real_t(1.e-20));
-        // 根据速度散度限制时间步
-        // Limitation du pas de temps via la divergence de vitesse.
-      }
+    Kokkos::parallel_for(
+        "Copy_regElemlist_hydro",
+        Kokkos::RangePolicy<ES>(0, length),
+        KOKKOS_LAMBDA(const Index_t i)
+    {
+        regElemlist(i) = regElemlist_host[i];
     });
 
-    MinFinder result;
-    // reduction 用的最小值结构
-    // Structure pour la réduction du minimum.
 
+    /* ------------------------------------------------------------
+       并行规约结构体：
+       用于找到最小 dtdvov
+       ------------------------------------------------------------ */
+    struct MinHydro {
+        Real_t dt;
+        Index_t elem;
+    };
+
+    MinHydro init;
+    init.dt   = dthydro_out;  // 初始值（非常大）
+    init.elem = -1;
+
+    /* ------------------------------------------------------------
+       parallel_reduce：寻找所有单元中最小的 dtdvov
+       ------------------------------------------------------------ */
     Kokkos::parallel_reduce(
-        length,
-        KOKKOS_LAMBDA(const int &i, MinFinder &minf) {
-          MinFinder tmp(dtdvovV(i), i);
-          // 候选项
-          // Candidat.
+        "CalcHydroConstraintForElems",
+        Kokkos::RangePolicy<ES>(0, length),
 
-          Index_t indx = regElemlist[i];
+        KOKKOS_LAMBDA(const Index_t i, MinHydro& localMin)
+        {
+            Index_t indx = regElemlist(i);
+            Real_t vdov = domain.vdov(indx);
 
-          if (domain.vdov(indx) != Real_t(0.)) {
-            minf += tmp;
-            // 只有非零散度的元素才参与比较
-            // Seulement les éléments avec divergence non nulle participent.
-          }
+            if (vdov != Real_t(0.0)) {
+                /* 
+                   dtdvov = dvovmax / |vdov|
+                   时间步基于体积变化率上限
+                */
+                Real_t dtdvov = dvovmax / (FABS(vdov) + Real_t(1.e-20));
+
+                /* 
+                   Stocker le plus petit
+                   存储最小值
+                */
+                if (dtdvov < localMin.dt) {
+                    localMin.dt = dtdvov;
+                    localMin.elem = indx;
+                }
+            }
         },
-        result);
 
-    if (result.val > dthydro) {
-      result.val = dthydro;
-      // 不超过当前全局限制
-      // Ne doit pas dépasser la limite courante.
+        Kokkos::MinReducer<MinHydro>(dthydro_out)
+    );
+
+    /* dthydro_out 已由 reducer 填充 */
+}
+
+/*
+   Évalue les contraintes de temps (Courant et Hydro) pour tous les éléments.
+   对全部区域（region）的单元计算时间步约束（Courant 与 Hydro）。
+*/
+KOKKOS_INLINE_FUNCTION
+void CalcTimeConstraintsForElems(Domain& domain)
+{
+    /* 
+       Initialiser avec des valeurs très grandes.
+       初始化为非常大的数。
+    */
+    domain.dtcourant() = Real_t(1.0e20);
+    domain.dthydro()   = Real_t(1.0e20);
+
+    const Index_t numReg = domain.numReg();
+
+    /* ------------------------------------------------------------
+       Boucle séquentielle sur les régions（区域级别是顺序处理的）
+       注意：region 数量通常较小（~10），不需要并行
+       ------------------------------------------------------------ */
+    for (Index_t r = 0; r < numReg; ++r) {
+
+        Index_t length = domain.regElemSize(r);
+        if (length == 0) continue;
+
+        Index_t* regList = domain.regElemlist(r);
+
+        /* 
+           1) Contrainte de Courant
+              Courant 时间步约束
+        */
+        CalcCourantConstraintForElems(
+            domain,
+            length,
+            regList,
+            domain.qqc(),
+            domain.dtcourant()
+        );
+
+        /* 
+           2) Contrainte Hydro
+              流体力学时间步约束
+        */
+        CalcHydroConstraintForElems(
+            domain,
+            length,
+            regList,
+            domain.dvovmax(),
+            domain.dthydro()
+        );
+    }
+}
+
+/*
+   Effectue un pas de temps Lagrangien (méthode leap-frog).
+   执行一次 Lagrange 弹跳法（Leapfrog）时间推进步骤。
+*/
+KOKKOS_INLINE_FUNCTION
+void LagrangeLeapFrog(Domain& domain)
+{
+    /*
+       Calcul des forces nodales, accélérations, vitesses et positions
+       en tenant compte des conditions aux limites.
+       计算节点力、加速度、速度、位置，并处理边界条件。
+    */
+    LagrangeNodal(domain);
+
+    /*
+       Calcul des quantités élémentaires (gradient de vitesse, viscosité q)
+       puis mise à jour de l’état du matériau.
+       计算单元量（速度梯度、人工粘性 q），并更新材料状态。
+    */
+    LagrangeElements(domain, domain.numElem());
+
+    /*
+       Évaluer les contraintes de temps (Courant + Hydro)
+       计算时间步长约束（Courant + Hydro）
+    */
+    CalcTimeConstraintsForElems(domain);
+
+    /*
+       NOTE IMPORTANTE :
+       Dans la version MPI, il existe des synchronisations de position/vitesse
+       (SEDOV_SYNC_POS_VEL_LATE). Celles-ci ne sont pas utilisées ici
+       car MPI = 0 dans la version Kokkos CPU/GPU.
+       重要说明：
+       在 MPI 版本中，这里会有位置/速度同步代码。
+       本 GPU/Kokkos 单机版本保持禁用，因为 MPI = 0。
+    */
+}
+
+/*
+   Calcule l'incrément de temps (dt) pour l'itération suivante.
+   根据 Courant/Hydro 约束计算下一步时间增量 dt。
+*/
+KOKKOS_INLINE_FUNCTION
+void TimeIncrement(Domain& domain)
+{
+    // Valeurs courantes de dt, temps, etc.
+    // 当前 dt、时间等
+    Real_t dtcourant = domain.dtcourant();
+    Real_t dthydro   = domain.dthydro();
+
+    Real_t olddt = domain.deltatime();
+    Real_t newdt = olddt;
+
+    /*
+       Calcul du dt basé sur les contraintes physiques
+       根据物理约束 (Courant + Hydro) 选择最小的 dt
+    */
+    if (dtcourant > Real_t(0.0)) {
+        newdt = FMIN(newdt, dtcourant);
+    }
+    if (dthydro > Real_t(0.0)) {
+        newdt = FMIN(newdt, dthydro);
     }
 
-    dthydro_per_thread[thread_num] = result.val;
-    hydro_elem_per_thread[thread_num] = result.i;
-    // 将当前线程的最小值写入保存区
-    // Enregistre le minimum local du thread.
-  }
-
-  if (hydro_elem_per_thread[0] != -1) {
-    dthydro = dthydro_per_thread[0];
-    // 单线程：直接使用线程 0 的结果
-    // Mono-thread : on utilise directement le résultat du thread 0.
-  }
-
-  return;
-}
-
-
-
-static inline void CalcTimeConstraintsForElems(Domain &domain) {
-
-  domain.dtcourant() = 1.0e+20;
-  // 初始化 Courant 限制为极大值
-  // Initialise la contrainte de Courant à une valeur très grande.
-
-  domain.dthydro() = 1.0e+20;
-  // 初始化水动力限制为极大值
-  // Initialise la contrainte hydrodynamique à une valeur très grande.
-
-  for (Index_t r = 0; r < domain.numReg(); ++r) {
-    CalcCourantConstraintForElems(domain, domain.regElemSize(r),
-                                  domain.regElemlist(r), domain.qqc(),
-                                  domain.dtcourant());
-    // 计算 Courant 限制
-    // Calcule la contrainte de Courant.
-
-    CalcHydroConstraintForElems(domain, domain.regElemSize(r),
-                                domain.regElemlist(r), domain.dvovmax(),
-                                domain.dthydro());
-    // 计算水动力限制
-    // Calcule la contrainte hydrodynamique.
-  }
-}
-
-
-
-static inline void LagrangeLeapFrog(Domain &domain) {
-#ifdef SEDOV_SYNC_POS_VEL_LATE
-  Domain_member fieldData[6];
-  // 延迟同步：存储 x,y,z 与速度字段
-  // Synchronisation tardive : stockage de x,y,z et vitesses.
-#endif
-
-  LagrangeNodal(domain);
-  // 移动节点（位置 + 速度半步）
-  // Mise à jour nodale (positions + demi-pas vitesse).
-
-#ifdef SEDOV_SYNC_POS_VEL_LATE
-#endif
-
-  LagrangeElements(domain, domain.numElem());
-  // 更新单元量（体积、几何量、应力等）
-  // Mise à jour élémentaire (volumes, géométrie, contraintes).
-
-#if USE_MPI
-#ifdef SEDOV_SYNC_POS_VEL_LATE
-  CommRecv(domain, MSG_SYNC_POS_VEL, 6, domain.sizeX() + 1, domain.sizeY() + 1,
-           domain.sizeZ() + 1, false, false);
-  // MPI 接收同步消息
-  // Réception MPI pour la synchronisation.
-
-  fieldData[0] = &Domain::x;
-  fieldData[1] = &Domain::y;
-  fieldData[2] = &Domain::z;
-  fieldData[3] = &Domain::xd;
-  fieldData[4] = &Domain::yd;
-  fieldData[5] = &Domain::zd;
-  // 指定需要同步的字段
-  // Désigne les champs à synchroniser.
-
-  CommSend(domain, MSG_SYNC_POS_VEL, 6, fieldData, domain.sizeX() + 1,
-           domain.sizeY() + 1, domain.sizeZ() + 1, false, false);
-  // MPI 发送同步消息
-  // Envoi MPI de la synchronisation.
-#endif
-#endif
-
-  CalcTimeConstraintsForElems(domain);
-  // 计算全局时间步限制（Courant + 水动力）
-  // Calcule les contraintes globales de pas de temps.
-
-#if USE_MPI
-#ifdef SEDOV_SYNC_POS_VEL_LATE
-  CommSyncPosVel(domain);
-  // 最终同步所有位置与速度
-  // Synchronisation finale des positions et vitesses.
-#endif
-#endif
-}
-
-int main(int argc, char *argv[]) {
-  Domain *locDom;  
-  // 局部 Domain 指针  
-  // Pointeur Domain local.
-
-  Int_t numRanks;  
-  // MPI 进程数量  
-  // Nombre de processus MPI.
-
-  Int_t myRank;  
-  // 当前进程编号  
-  // Rang du processus courant.
-
-  struct cmdLineOpts opts;  
-  // 命令行选项结构  
-  // Structure des options de ligne de commande.
-
-#if USE_MPI
-  Domain_member fieldData;
-  // MPI 同步的字段指针  
-  // Pointeur vers les champs pour la synchronisation MPI.
-
-  MPI_Init(&argc, &argv);
-  // 初始化 MPI  
-  // Initialisation MPI.
-
-  MPI_Comm_size(MPI_COMM_WORLD, &numRanks);
-  // 获取 MPI 总进程数  
-  // Récupère le nombre total de processus MPI.
-
-  MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
-  // 获取当前 MPI 进程编号  
-  // Récupère le rang du processus courant.
-#else
-  numRanks = 1;
-  // 非 MPI 模式：固定为 1  
-  // Mode non-MPI : valeur fixée à 1.
-
-  myRank = 0;
-  // 非 MPI 模式：只有 rank 0  
-  // Mode non-MPI : seul le rang 0 existe.
-#endif
-
-  Kokkos::initialize();
-  // 初始化 Kokkos  
-  // Initialisation de Kokkos.
-
-  opts.its = 9999999;  
-  // 最大迭代次数  
-  // Nombre maximal d’itérations.
-
-  opts.nx = 30;  
-  // 立方体边长（每维大小）  
-  // Taille du cube (nombre de nœuds par dimension).
-
-  opts.numReg = 11;  
-  // 区域数量  
-  // Nombre de régions.
-
-  opts.numFiles = (int)(numRanks + 10) / 9;  
-  // 可视化输出文件数量  
-  // Nombre de fichiers pour la visualisation.
-
-  opts.showProg = 0;  
-  // 是否显示进度  
-  // Affichage de la progression.
-
-  opts.quiet = 0;  
-  // 安静模式标志  
-  // Mode silencieux.
-
-  opts.viz = 0;  
-  // 是否输出 VisIt 文件  
-  // Génération des fichiers VisIt.
-
-  opts.balance = 1;  
-  // 区域平衡参数  
-  // Paramètre d’équilibrage des régions.
-
-  opts.cost = 1;  
-  // 区域代价系数  
-  // Coût relatif des régions.
-
-  ParseCommandLineOptions(argc, argv, myRank, &opts);
-  // 解析命令行参数  
-  // Analyse des options de ligne de commande.
-
-  if ((myRank == 0) && (opts.quiet == 0)) {
-    printf("Running problem size %d^3 per domain until completion\n", opts.nx);
-    // 打印每个域的计算规模  
-    // Affiche la taille du problème par domaine.
-
-    printf("Num processors: %d\n", numRanks);
-    // 打印处理器数量  
-    // Affiche le nombre de processeurs.
-
-#if _OPENMP
-    printf("Num threads: %d\n", omp_get_max_threads());
-    // 打印 OpenMP 线程数  
-    // Affiche le nombre de threads OpenMP.
-#endif
-
-    printf("Total number of elements: %lld\n\n",
-           (long long int)(numRanks * opts.nx * opts.nx * opts.nx));
-    // 打印总单元数  
-    // Affiche le nombre total d’éléments.
-
-    printf("To run other sizes, use -s <integer>.\n");
-    // 用 -s 改变规模  
-    // Modifier la taille avec -s.
-
-    printf("To run a fixed number of iterations, use -i <integer>.\n");
-    // 用 -i 控制迭代次数  
-    // Fixer le nombre d’itérations avec -i.
-
-    printf("To run a more or less balanced region set, use -b <integer>.\n");
-    // 用 -b 控制区域平衡  
-    // Ajuster l’équilibrage avec -b.
-
-    printf("To change the relative costs of regions, use -c <integer>.\n");
-    // 用 -c 设置区域代价  
-    // Ajuster les coûts régionaux avec -c.
-
-    printf("To print out progress, use -p\n");
-    // 用 -p 显示运行进度  
-    // Afficher la progression avec -p.
-
-    printf("To write an output file for VisIt, use -v\n");
-    // 用 -v 输出 VisIt 文件  
-    // Générer les fichiers VisIt avec -v.
-
-    printf("See help (-h) for more options\n\n");
-    // 更多选项见 -h  
-    // Voir -h pour plus d’options.
-  }
-
-  Int_t col, row, plane, side;  
-  // 网格分解信息  
-  // Informations de décomposition du maillage.
-
-  InitMeshDecomp(numRanks, myRank, &col, &row, &plane, &side);
-  // 初始化网格分解  
-  // Initialisation de la décomposition du maillage.
-
-  locDom = new Domain(numRanks, col, row, plane, opts.nx, side, opts.numReg,
-                      opts.balance, opts.cost);
-  // 创建 Domain 对象  
-  // Création de l’objet Domain.
-
-#if USE_MPI
-  fieldData = &Domain::nodalMass;
-  // 选择 nodalMass 字段用于同步  
-  // Sélection du champ nodalMass pour la synchronisation.
-
-  CommRecv(*locDom, MSG_COMM_SBN, 1, locDom->sizeX() + 1, locDom->sizeY() + 1,
-           locDom->sizeZ() + 1, true, false);
-  // 接收 ghost 数据  
-  // Réception des données fantômes.
-
-  CommSend(*locDom, MSG_COMM_SBN, 1, &fieldData, locDom->sizeX() + 1,
-           locDom->sizeY() + 1, locDom->sizeZ() + 1, true, false);
-  // 发送 ghost 数据  
-  // Envoi des données fantômes.
-
-  CommSBN(*locDom, 1, &fieldData);
-  // 完成 SBN 同步  
-  // Synchronisation SBN complète.
-
-  MPI_Barrier(MPI_COMM_WORLD);
-  // MPI 全局同步  
-  // Synchronisation globale MPI.
-#endif
-
-#if USE_MPI
-  double start = MPI_Wtime();
-  // MPI 下计时开始  
-  // Début du chronométrage MPI.
-#else
-  timeval start;
-  gettimeofday(&start, NULL);
-  // 非 MPI 下使用 wall clock 计时  
-  // Chronométrage wall-clock pour mode non-MPI.
-#endif
-
-  while ((locDom->time() < locDom->stoptime()) &&
-         (locDom->cycle() < opts.its)) {
-    // 主循环：时间未结束且未达到迭代上限  
-    // Boucle principale : temps non terminé et limite d’itération non atteinte.
-
-    TimeIncrement(*locDom);
-    // 更新时间步  
-    // Mise à jour du pas de temps.
-
-    LagrangeLeapFrog(*locDom);
-    // 主 Lagrange 跳步算法  
-    // Algorithme Leapfrog principal.
-
-    if ((opts.showProg != 0) && (opts.quiet == 0) && (myRank == 0)) {
-      printf("cycle = %d, time = %e, dt=%e\n", locDom->cycle(),
-             double(locDom->time()), double(locDom->deltatime()));
-      // 输出当前进度  
-      // Affiche la progression courante.
+    /*
+       Ajustement du dt si changement trop brutal
+       如果 dt 变化过大，则进行平滑调整
+       (对应 LULESH 原版的 dt "safety resize")
+    */
+    Real_t ratio = newdt / olddt;
+    if (ratio >= Real_t(1.0)) {
+        if (ratio < Real_t(1.2)) {
+            // autorisé
+            // 轻微变化允许
+        } else {
+            newdt = olddt * Real_t(1.2);
+        }
+    } else {
+        if (ratio > Real_t(0.5)) {
+            // autorisé
+            // 轻微缩小允许
+        } else {
+            newdt = olddt * Real_t(0.5);
+        }
     }
-  }
 
-  double elapsed_time;
-#if USE_MPI
-  elapsed_time = MPI_Wtime() - start;
-  // MPI 模式：时间差  
-  // Mode MPI : différence de temps.
-#else
-  timeval end;
-  gettimeofday(&end, NULL);
-  elapsed_time = (double)(end.tv_sec - start.tv_sec) +
-                 ((double)(end.tv_usec - start.tv_usec)) / 1000000;
-  // 非 MPI 模式：wall clock 计算运行时间  
-  // Mode non-MPI : temps écoulé via wall clock.
-#endif
+    /*
+       Ne pas dépasser le temps final défini
+       时间不能超过模拟终止点
+    */
+    Real_t stoptime = domain.stoptime();
+    Real_t now      = domain.time();
 
-  double elapsed_timeG;
-#if USE_MPI
-  MPI_Reduce(&elapsed_time, &elapsed_timeG, 1, MPI_DOUBLE, MPI_MAX, 0,
-             MPI_COMM_WORLD);
-  // 收集最大运行时间（确保正确）  
-  // Réduction MPI pour obtenir le temps maximal.
-#else
-  elapsed_timeG = elapsed_time;
-  // 单进程直接赋值  
-  // Valeur directe pour mode mono-processus.
-#endif
+    if ((now + newdt) > stoptime) {
+        newdt = stoptime - now;
+    }
 
-  if (opts.viz) {
-    DumpToVisit(*locDom, opts.numFiles, myRank, numRanks);
-    // 输出 VisIt 文件  
-    // Génère les fichiers VisIt.
-  }
+    /*
+       Mise à jour du domaine
+       更新到 Domain 数据结构
+    */
+    domain.deltatimeold() = olddt;   // dt précédent / 旧 dt
+    domain.deltatime()    = newdt;   // nouveau dt / 新 dt
+    domain.time()        += newdt;   // avancer le temps / 时间推进
 
-  if ((myRank == 0) && (opts.quiet == 0)) {
-    VerifyAndWriteFinalOutput(elapsed_timeG, *locDom, opts.nx, numRanks);
-    // 验证结果并输出最终信息  
-    // Vérifie les résultats et écrit la sortie finale.
-  }
+    domain.cycle()++;                // augmenter le compteur d’itérations
+                                     // 迭代计数器 +1
+}
 
-  Kokkos::finalize();
-  // 关闭 Kokkos  
-  // Finalisation de Kokkos.
+/*
+   Met à jour les quantités nodales : forces, accélérations, vitesses, positions.
+   更新节点物理量：力、加速度、速度、位置。
+*/
+KOKKOS_INLINE_FUNCTION
+void LagrangeNodal(Domain& domain)
+{
+    /*
+       1. Calcul des forces nodales
+          计算节点力
+    */
+    CalcForceForNodes(domain);
 
-#if USE_MPI
-  MPI_Finalize();
-  // 结束 MPI  
-  // Finalisation MPI.
-#endif
+    /*
+       2. Calcul des accélérations nodales
+          计算节点加速度 a = F / m
+    */
+    CalcAccelerationForNodes(domain);
 
-  return 0;
-  // 正常结束  
-  // Fin normale du programme.
+    /*
+       3. Application des conditions limites
+          应用加速度的边界条件（固定面/对称面等）
+    */
+    ApplyAccelerationBoundaryConditionsForNodes(domain);
+
+    /*
+       4. Mise à jour des vitesses nodales
+          更新节点速度：v(t+dt) = v(t) + a * dt
+    */
+    CalcVelocityForNodes(domain);
+
+    /*
+       5. Mise à jour des positions nodales
+          更新节点位置：x(t+dt) = x(t) + v * dt
+    */
+    CalcPositionForNodes(domain);
+}
+
+#include <Kokkos_Core.hpp>
+
+/*
+   Programme principal de KLULES (version CPU sans MPI).
+   KLULES 主程序（CPU 单机，无 MPI 版本）。
+*/
+
+int main(int argc, char* argv[])
+{
+    // Initialisation de Kokkos
+    // 初始化 Kokkos
+    Kokkos::initialize(argc, argv);
+    {
+        Domain* locDom ;
+        struct cmdLineOpts opts;
+
+        // --------------------------------------------------------------------
+        // Définition des paramètres par défaut (modifiables par options CLI)
+        // 设置默认参数（可被命令行覆盖）
+        // --------------------------------------------------------------------
+        opts.its      = 9999999;
+        opts.nx       = 30;
+        opts.numReg   = 11;
+        opts.numFiles = 1;
+        opts.showProg = 0;
+        opts.quiet    = 0;
+        opts.viz      = 0;
+        opts.balance  = 1;
+        opts.cost     = 1;
+
+        // Analyse des options en ligne de commande
+        // 解析命令行参数
+        ParseCommandLineOptions(argc, argv, 0, &opts);
+
+        if (!opts.quiet) {
+            std::cout << "Running problem size "
+                      << opts.nx << "^3 on single CPU domain\n";
+            std::cout << "Total number of elements: "
+                      << (opts.nx * opts.nx * opts.nx) << "\n\n";
+        }
+
+        // --------------------------------------------------------------------
+        // Décomposition du maillage (version simple, pas de MPI)
+        // 网格划分（单机版本，固定为 1 个域）
+        // --------------------------------------------------------------------
+        Int_t col = 0, row = 0, plane = 0, side = 1;
+        InitMeshDecomp(1, 0, &col, &row, &plane, &side);
+
+        // --------------------------------------------------------------------
+        // Construction du domaine principal
+        // 构造主 Domain 对象
+        // --------------------------------------------------------------------
+        locDom = new Domain(1, col, row, plane,
+                            opts.nx, side,
+                            opts.numReg, opts.balance, opts.cost);
+
+        // --------------------------------------------------------------------
+        // Boucle temporelle principale
+        // 主时间推进循环
+        // --------------------------------------------------------------------
+
+        double start_time = wall_clock();   // 获取 wall-clock 时间
+
+        while ((locDom->time() < locDom->stoptime()) &&
+               (locDom->cycle() < opts.its))
+        {
+            // Incrément du temps
+            // 时间步推进
+            TimeIncrement(*locDom);
+
+            // Mise à jour nodale + éléments
+            // 节点更新 + 单元更新
+            LagrangeLeapFrog(*locDom);
+
+            if (opts.showProg && !opts.quiet) {
+                std::cout << "cycle = " << locDom->cycle()
+                          << ", time = " << double(locDom->time())
+                          << ", dt = " << double(locDom->deltatime())
+                          << "\n";
+            }
+        }
+
+        double elapsed = wall_clock() - start_time;
+
+        // --------------------------------------------------------------------
+        // Sorties finales : fichier VTK / validation résultats
+        // 最终输出：VTK 可视化 / 结果验证
+        // --------------------------------------------------------------------
+        if (opts.viz)
+            DumpToVisit(*locDom, opts.numFiles, 0, 1);
+
+        if (!opts.quiet)
+            VerifyAndWriteFinalOutput(elapsed, *locDom, opts.nx, 1);
+
+        delete locDom;
+    }
+    // Finalisation Kokkos
+    // 结束 Kokkos
+    Kokkos::finalize();
+
+    return 0;
 }
