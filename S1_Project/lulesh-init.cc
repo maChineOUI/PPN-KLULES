@@ -250,36 +250,7 @@ void Domain::SetupInitialVolumesAndMasses()
  |   初始能量注入（Sedov 爆炸问题的初值设定）                           |
  *--------------------------------------------------------------------*/
 
-{
-    /* 
-     * Energie analytique correcte pour un problème 45³
-     * 对标准 45³ Sedov 问题，正确能量为 3.948746e7
-     */
-    const Real_t ebase = Real_t(3.948746e+7);
 
-    /*
-     * Mise à l’échelle selon la taille nx*m_tp
-     * 根据网格与分块缩放能量
-     */
-    Real_t scale = (nx * m_tp) / Real_t(45.0);
-    Real_t einit = ebase * scale * scale * scale;
-
-    /*
-     * Injection d’énergie dans le premier élément du coin (rang 0)
-     * 仅 rank=0 的 (0,0,0) 单元接收爆炸能量
-     */
-    if (m_rowLoc + m_colLoc + m_planeLoc == 0) {
-        e(0) = einit;
-    }
-
-    /*
-     * Initialisation du pas de temps basé sur CFL analytique
-     * 使用解析 CFL 条件初始化时间步长
-     * dt = 0.5 * cbrt(volo(0)) / sqrt(2 * E_init)
-     */
-    Real_t v0 = volo(0);
-    deltatime() = (Real_t(0.5) * cbrt(v0)) / sqrt(Real_t(2.0) * einit);
-}
 
 void Domain::CreateRegionIndexSets(Int_t nr, Int_t balance)
 {
@@ -349,12 +320,12 @@ void Domain::CreateRegionIndexSets(Int_t nr, Int_t balance)
 
   // 中文：从 RandomPool 获取 RNG 实例
   // 法语：Obtenir un générateur aléatoire depuis le RandomPool
-  auto rand_gen = rand_pool.get_state();
+  auto rand_gen = randPool.get_state();
 
   while (nextIndex < numElem()) {
 
     // -------- 区域选择：按权重 --------
-    Int_t rnum = rand_gen.rand_int(costDen);
+    Int_t rnum = static_cast<Int_t>(rand_gen.urand() * costDen);
     Int_t idx = 0;
     while (rnum >= regBinEnd[idx]) idx++;
 
@@ -365,23 +336,23 @@ void Domain::CreateRegionIndexSets(Int_t nr, Int_t balance)
     // 中文：避免连续两次选同一区域
     // 法语：Éviter de choisir deux fois de suite la même région
     while (region == lastReg) {
-      rnum = rand_gen.rand_int(costDen);
+      static_cast<Int_t>(rand_gen.urand() * costDen);
       idx = 0;
       while (rnum >= regBinEnd[idx]) idx++;
       region = idx + 1;
     }
 
     // -------- 计算 binSize（决定一次分配多少元素） --------
-    Int_t binSize = rand_gen.rand_int(1000);
+    Int_t binSize = static_cast<Int_t>(rand_gen.urand() * 1000);
     Index_t elements;
 
-    if (binSize < 773)        elements = rand_gen.rand_int(15) + 1;
-    else if (binSize < 937)   elements = rand_gen.rand_int(16) + 16;
-    else if (binSize < 970)   elements = rand_gen.rand_int(32) + 32;
-    else if (binSize < 974)   elements = rand_gen.rand_int(64) + 64;
-    else if (binSize < 978)   elements = rand_gen.rand_int(128) + 128;
-    else if (binSize < 981)   elements = rand_gen.rand_int(256) + 256;
-    else                      elements = rand_gen.rand_int(1537) + 512;
+    if (binSize < 773)        elements = static_cast<Int_t>(rand_gen.urand() * 15) + 1;
+    else if (binSize < 937)   elements = static_cast<Int_t>(rand_gen.urand() * 16) + 16;
+    else if (binSize < 970)   elements = static_cast<Int_t>(rand_gen.urand() * 32) + 32;
+    else if (binSize < 974)   elements = static_cast<Int_t>(rand_gen.urand() * 64) + 64;
+    else if (binSize < 978)   elements = static_cast<Int_t>(rand_gen.urand() * 128) + 128;
+    else if (binSize < 981)   elements = static_cast<Int_t>(rand_gen.urand() * 256) + 256;
+    else                      elements = static_cast<Int_t>(rand_gen.urand() * 1537) + 512;
 
     Index_t runto = nextIndex + elements;
 
@@ -396,7 +367,7 @@ void Domain::CreateRegionIndexSets(Int_t nr, Int_t balance)
   }
 
   // 归还 RNG
-  rand_pool.free_state(rand_gen);
+  randPool.free_state(rand_gen);
 
   // 同步回 device
   Kokkos::deep_copy(m_regElemSize, h_regElemSize);

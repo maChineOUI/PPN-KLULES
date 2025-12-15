@@ -290,12 +290,10 @@ void InitStressTermsForElems(Domain &domain,
    // Récupérer les contraintes adaptées à l'intégration hydrodynamique
    // 提取适合当前流体力学积分步骤的应力值
 
-   using ExecSpace   = Kokkos::DefaultExecutionSpace;
-   using RangePolicy = Kokkos::RangePolicy<ExecSpace>;
 
    Kokkos::parallel_for(
       "InitStressTermsForElems",
-      RangePolicy(0, numElem),
+      Kokkos::RangePolicy<>(0, numElem),
       KOKKOS_LAMBDA(const Index_t i) {
          sigxx[i] = sigyy[i] = sigzz[i] = - domain.p(i) - domain.q(i);
       });
@@ -540,16 +538,14 @@ void IntegrateStressForElems(const Domain &domain,
                               Real_t *sigxx, Real_t *sigyy, Real_t *sigzz,
                               Real_t *determ, Index_t numElem, Index_t /*tumNode*/)
 {
-   using ExecSpace   = Kokkos::DefaultExecutionSpace;
-   using RangePolicy = Kokkos::RangePolicy<ExecSpace>;
-
+   
    // loop over all elements (now in Kokkos)
    // Boucle sur tous les éléments (désormais avec Kokkos)
    // 对所有单元进行循环（使用 Kokkos 并行执行）
 
    Kokkos::parallel_for(
       "IntegrateStressForElems",
-      RangePolicy(0, numElem),
+      Kokkos::RangePolicy<>(0, numElem),
       KOKKOS_LAMBDA(const Index_t k)
    {
       const Index_t* const elemToNode = domain.nodelist(k);
@@ -1199,7 +1195,16 @@ void CalcVelocityForNodes(Domain &domain,
                           const Real_t u_cut,
                           Index_t numNode)
 {
-   Kokkos::parallel_for(
+// --- 提前取出 Views（这是关键）
+    auto xd  = domain.xd_view();
+    auto yd  = domain.yd_view();
+    auto zd  = domain.zd_view();
+
+    auto xdd = domain.xdd_view();
+    auto ydd = domain.ydd_view();
+    auto zdd = domain.zdd_view();
+
+    Kokkos::parallel_for(
       "CalcVelocityForNodes",
       Kokkos::RangePolicy<>(0, numNode),
       KOKKOS_LAMBDA(const Index_t i)
@@ -1207,28 +1212,28 @@ void CalcVelocityForNodes(Domain &domain,
       /* mise à jour de la vitesse x : vx_new = vx_old + ax * dt
          更新 x 方向速度：xd = xd + xdd * dt
       */
-      Real_t xdtmp = domain.xd(i) + domain.xdd(i) * dt;
+      Real_t xdtmp = xd(i) + xdd(i) * dt;
 
       // seuil u_cut : si trop petit, mettre à zéro
       // 速度绝对值若小于 u_cut，则认为为 0（避免震荡）
       if (FABS(xdtmp) < u_cut) {
          xdtmp = Real_t(0.0);
       }
-      domain.xd(i) = xdtmp;
+      xd(i) = xdtmp;
 
       /* idem pour la vitesse y */
-      Real_t ydtmp = domain.yd(i) + domain.ydd(i) * dt;
+      Real_t ydtmp = yd(i) + ydd(i) * dt;
       if (FABS(ydtmp) < u_cut) {
          ydtmp = Real_t(0.0);
       }
-      domain.yd(i) = ydtmp;
+      yd(i) = ydtmp;
 
       /* idem pour la vitesse z */
-      Real_t zdtmp = domain.zd(i) + domain.zdd(i) * dt;
+      Real_t zdtmp = zd(i) + zdd(i) * dt;
       if (FABS(zdtmp) < u_cut) {
          zdtmp = Real_t(0.0);
       }
-      domain.zd(i) = zdtmp;
+      zd(i) = zdtmp;
    });
 }
 
@@ -1240,6 +1245,15 @@ void CalcPositionForNodes(Domain &domain,
                           const Real_t dt,
                           Index_t numNode)
 {
+// --- 提前取出 Views
+   auto x  = domain.x_view();
+   auto y  = domain.y_view();
+   auto z  = domain.z_view();
+
+   auto xd = domain.xd_view();
+   auto yd = domain.yd_view();
+   auto zd = domain.zd_view();
+
    Kokkos::parallel_for(
       "CalcPositionForNodes",
       Kokkos::RangePolicy<>(0, numNode),
@@ -1248,17 +1262,17 @@ void CalcPositionForNodes(Domain &domain,
       /* x_new = x_old + vx * dt
          根据速度更新 x 坐标
       */
-      domain.x(i) += domain.xd(i) * dt;
+      x(i) += xd(i) * dt;
 
       /* y_new = y_old + vy * dt
          更新 y 坐标
       */
-      domain.y(i) += domain.yd(i) * dt;
+      y(i) += yd(i) * dt;
 
       /* z_new = z_old + vz * dt
          更新 z 坐标
       */
-      domain.z(i) += domain.zd(i) * dt;
+      z(i) += zd(i) * dt;
    });
 }
 
@@ -1666,9 +1680,18 @@ void CalcKinematicsForElems(
        Boucle sur tous les éléments.
        对所有单元执行循环。
     */
+    // --- 取出需要写的 Views（关键）
+auto vnew   = domain.vnew_view();
+auto delv   = domain.delv_view();
+auto arealg = domain.arealg_view();
+
+auto dxx    = domain.dxx_view();
+auto dyy    = domain.dyy_view();
+auto dzz    = domain.dzz_view();
+
     Kokkos::parallel_for(
         "CalcKinematicsForElems",
-        Kokkos::RangePolicy<ExecSpace>(0, numElem),
+        Kokkos::RangePolicy<>(0, numElem),
         KOKKOS_LAMBDA(const Index_t k)
     {
         Real_t B[3][8];   /* dérivées des fonctions de forme / 形函数导数 */
@@ -1700,14 +1723,14 @@ void CalcKinematicsForElems(
         Real_t volume = CalcElemVolume(x_local, y_local, z_local);
         Real_t relativeVolume = volume / domain.volo(k);
 
-        domain.vnew(k) = relativeVolume;           /* nouveau volume 相对体积 */
-        domain.delv(k) = relativeVolume - domain.v(k); /* 体积变化 */
+        vnew(k) = relativeVolume;           /* nouveau volume 相对体积 */
+        delv(k) = relativeVolume - domain.v(k); /* 体积变化 */
 
         /* ---------------------------------------------------------
            3. Longueur caractéristique (géométrie)
            3. 单元特征长度
         --------------------------------------------------------- */
-        domain.arealg(k) =
+        arealg(k) =
             CalcElemCharacteristicLength(x_local, y_local, z_local, volume);
 
         /* ---------------------------------------------------------
@@ -1750,9 +1773,9 @@ void CalcKinematicsForElems(
            8. Stocker les quantités dans le domain
            8. 写回域数据
         --------------------------------------------------------- */
-        domain.dxx(k) = D[0];
-        domain.dyy(k) = D[1];
-        domain.dzz(k) = D[2];
+        dxx(k) = D[0];
+        dyy(k) = D[1];
+        dzz(k) = D[2];
     });
 }
 
@@ -1788,9 +1811,17 @@ void CalcLagrangeElements(Domain& domain)
            calculer vdov, et détecter les volumes négatifs.
            第二个循环：施加偏应变约束、计算vdov、检测体积负值。
         */
+
+auto dxx  = domain.dxx_view();
+auto dyy  = domain.dyy_view();
+auto dzz  = domain.dzz_view();
+auto vdov_v = domain.vdov_view();
+auto vnew = domain.vnew_view();
+
+
         Kokkos::parallel_for(
             "CalcLagrangeElements",
-            Kokkos::RangePolicy<ExecSpace>(0, numElem),
+            Kokkos::RangePolicy<>(0, numElem),
             KOKKOS_LAMBDA(const Index_t k)
         {
             /* 
@@ -1807,17 +1838,17 @@ void CalcLagrangeElements(Domain& domain)
                Rendre le tenseur de déformation déviatorique
                使变形张量成为偏张量（去除体积部分）
             */
-            domain.vdov(k) = vdov;
+            vdov_v(k) = vdov;
 
-            domain.dxx(k) -= vdovthird;
-            domain.dyy(k) -= vdovthird;
-            domain.dzz(k) -= vdovthird;
+            dxx(k) -= vdovthird;
+            dyy(k) -= vdovthird;
+            dzz(k) -= vdovthird;
 
             /* 
                Vérification du volume : si vnew ≤ 0 → erreur fatale
                检查体积：若 vnew ≤ 0 → 致命错误
             */
-            if (domain.vnew(k) <= Real_t(0.0)) {
+            if (vnew(k) <= Real_t(0.0)) {
                 /* 
                    Version MPI retirée (USE_MPI=0).
                    删除 MPI 版本（USE_MPI=0）
@@ -1843,9 +1874,34 @@ void CalcMonotonicQGradientsForElems(Domain& domain)
 {
     const Index_t numElem = domain.numElem();
 
+// --- node-based views
+auto x  = domain.x_view();
+auto y  = domain.y_view();
+auto z  = domain.z_view();
+
+auto xd = domain.xd_view();
+auto yd = domain.yd_view();
+auto zd = domain.zd_view();
+
+// --- elem-based views
+auto volo = domain.volo_view();
+auto vnew = domain.vnew_view();
+
+auto delx_zeta = domain.delx_zeta_view();
+auto delx_xi   = domain.delx_xi_view();
+auto delx_eta  = domain.delx_eta_view();
+
+auto delv_zeta = domain.delv_zeta_view();
+auto delv_xi   = domain.delv_xi_view();
+auto delv_eta  = domain.delv_eta_view();
+
+// --- connectivity
+auto nodelist = domain.nodelist_view();
+
+
     Kokkos::parallel_for(
         "CalcMonotonicQGradientsForElems",
-        Kokkos::RangePolicy<ExecSpace>(0, numElem),
+        Kokkos::RangePolicy<>(0, numElem),
         KOKKOS_LAMBDA(const Index_t i)
     {
         const Real_t ptiny = Real_t(1.e-36);
@@ -1856,54 +1912,53 @@ void CalcMonotonicQGradientsForElems(Domain& domain)
            Récupérer la connectivité élément→nœuds
            获取该单元的节点编号
         */
-        const Index_t* elemToNode = domain.nodelist(i);
 
-        Index_t n0 = elemToNode[0];
-        Index_t n1 = elemToNode[1];
-        Index_t n2 = elemToNode[2];
-        Index_t n3 = elemToNode[3];
-        Index_t n4 = elemToNode[4];
-        Index_t n5 = elemToNode[5];
-        Index_t n6 = elemToNode[6];
-        Index_t n7 = elemToNode[7];
+Index_t n0 = nodelist(8*i + 0);
+Index_t n1 = nodelist(8*i + 1);
+Index_t n2 = nodelist(8*i + 2);
+Index_t n3 = nodelist(8*i + 3);
+Index_t n4 = nodelist(8*i + 4);
+Index_t n5 = nodelist(8*i + 5);
+Index_t n6 = nodelist(8*i + 6);
+Index_t n7 = nodelist(8*i + 7);
 
         /* 
            Charger les coordonnées (x,y,z)
            加载节点坐标
         */
-        Real_t x0 = domain.x(n0); Real_t x1 = domain.x(n1);
-        Real_t x2 = domain.x(n2); Real_t x3 = domain.x(n3);
-        Real_t x4 = domain.x(n4); Real_t x5 = domain.x(n5);
-        Real_t x6 = domain.x(n6); Real_t x7 = domain.x(n7);
+        Real_t x0 = x(n0); Real_t x1 = x(n1);
+        Real_t x2 = x(n2); Real_t x3 = x(n3);
+        Real_t x4 = x(n4); Real_t x5 = x(n5);
+        Real_t x6 = x(n6); Real_t x7 = x(n7);
 
-        Real_t y0 = domain.y(n0); Real_t y1 = domain.y(n1);
-        Real_t y2 = domain.y(n2); Real_t y3 = domain.y(n3);
-        Real_t y4 = domain.y(n4); Real_t y5 = domain.y(n5);
-        Real_t y6 = domain.y(n6); Real_t y7 = domain.y(n7);
+        Real_t y0 = y(n0); Real_t y1 = y(n1);
+        Real_t y2 = y(n2); Real_t y3 = y(n3);
+        Real_t y4 = y(n4); Real_t y5 = y(n5);
+        Real_t y6 = y(n6); Real_t y7 = y(n7);
 
-        Real_t z0 = domain.z(n0); Real_t z1 = domain.z(n1);
-        Real_t z2 = domain.z(n2); Real_t z3 = domain.z(n3);
-        Real_t z4 = domain.z(n4); Real_t z5 = domain.z(n5);
-        Real_t z6 = domain.z(n6); Real_t z7 = domain.z(n7);
+        Real_t z0 = z(n0); Real_t z1 = z(n1);
+        Real_t z2 = z(n2); Real_t z3 = z(n3);
+        Real_t z4 = z(n4); Real_t z5 = z(n5);
+        Real_t z6 = z(n6); Real_t z7 = z(n7);
 
         /* 
            Charger les vitesses nodales
            加载节点速度
         */
-        Real_t xv0 = domain.xd(n0); Real_t xv1 = domain.xd(n1);
-        Real_t xv2 = domain.xd(n2); Real_t xv3 = domain.xd(n3);
-        Real_t xv4 = domain.xd(n4); Real_t xv5 = domain.xd(n5);
-        Real_t xv6 = domain.xd(n6); Real_t xv7 = domain.xd(n7);
+        Real_t xv0 = xd(n0); Real_t xv1 = xd(n1);
+        Real_t xv2 = xd(n2); Real_t xv3 = xd(n3);
+        Real_t xv4 = xd(n4); Real_t xv5 = xd(n5);
+        Real_t xv6 = xd(n6); Real_t xv7 = xd(n7);
 
-        Real_t yv0 = domain.yd(n0); Real_t yv1 = domain.yd(n1);
-        Real_t yv2 = domain.yd(n2); Real_t yv3 = domain.yd(n3);
-        Real_t yv4 = domain.yd(n4); Real_t yv5 = domain.yd(n5);
-        Real_t yv6 = domain.yd(n6); Real_t yv7 = domain.yd(n7);
+        Real_t yv0 = yd(n0); Real_t yv1 = yd(n1);
+        Real_t yv2 = yd(n2); Real_t yv3 = yd(n3);
+        Real_t yv4 = yd(n4); Real_t yv5 = yd(n5);
+        Real_t yv6 = yd(n6); Real_t yv7 = yd(n7);
 
-        Real_t zv0 = domain.zd(n0); Real_t zv1 = domain.zd(n1);
-        Real_t zv2 = domain.zd(n2); Real_t zv3 = domain.zd(n3);
-        Real_t zv4 = domain.zd(n4); Real_t zv5 = domain.zd(n5);
-        Real_t zv6 = domain.zd(n6); Real_t zv7 = domain.zd(n7);
+        Real_t zv0 = zd(n0); Real_t zv1 = zd(n1);
+        Real_t zv2 = zd(n2); Real_t zv3 = zd(n3);
+        Real_t zv4 = zd(n4); Real_t zv5 = zd(n5);
+        Real_t zv6 = zd(n6); Real_t zv7 = zd(n7);
 
         /* 
            Volume actuel = volo * vnew
@@ -1933,7 +1988,7 @@ void CalcMonotonicQGradientsForElems(Domain& domain)
         ay = dzi*dxj - dxi*dzj;
         az = dxi*dyj - dyi*dxj;
 
-        domain.delx_zeta(i) = vol / sqrt(ax*ax + ay*ay + az*az + ptiny);
+        delx_zeta(i) = vol / sqrt(ax*ax + ay*ay + az*az + ptiny);
 
         ax *= norm; ay *= norm; az *= norm;
 
@@ -1941,7 +1996,7 @@ void CalcMonotonicQGradientsForElems(Domain& domain)
         dyv = Real_t(0.25) * ((yv4+yv5+yv6+yv7) - (yv0+yv1+yv2+yv3));
         dzv = Real_t(0.25) * ((zv4+zv5+zv6+zv7) - (zv0+zv1+zv2+zv3));
 
-        domain.delv_zeta(i) = ax*dxv + ay*dyv + az*dzv;
+        delv_zeta(i) = ax*dxv + ay*dyv + az*dzv;
 
         /*-----------------------------------------------*
          |                Direction  ξ                  |
@@ -1951,7 +2006,7 @@ void CalcMonotonicQGradientsForElems(Domain& domain)
         ay = dzj*dxk - dxj*dzk;
         az = dxj*dyk - dyj*dxk;
 
-        domain.delx_xi(i) = vol / sqrt(ax*ax + ay*ay + az*az + ptiny);
+        delx_xi(i) = vol / sqrt(ax*ax + ay*ay + az*az + ptiny);
 
         ax *= norm; ay *= norm; az *= norm;
 
@@ -1959,7 +2014,7 @@ void CalcMonotonicQGradientsForElems(Domain& domain)
         dyv = Real_t(0.25) * ((yv1+yv2+yv6+yv5) - (yv0+yv3+yv7+yv4));
         dzv = Real_t(0.25) * ((zv1+zv2+zv6+zv5) - (zv0+zv3+zv7+zv4));
 
-        domain.delv_xi(i) = ax*dxv + ay*dyv + az*dzv;
+        delv_xi(i) = ax*dxv + ay*dyv + az*dzv;
 
         /*-----------------------------------------------*
          |                Direction  η                  |
@@ -1969,7 +2024,7 @@ void CalcMonotonicQGradientsForElems(Domain& domain)
         ay = dzk*dxi - dxk*dzi;
         az = dxk*dyi - dyk*dxi;
 
-        domain.delx_eta(i) = vol / sqrt(ax*ax + ay*ay + az*az + ptiny);
+        delx_eta(i) = vol / sqrt(ax*ax + ay*ay + az*az + ptiny);
 
         ax *= norm; ay *= norm; az *= norm;
 
@@ -1977,7 +2032,7 @@ void CalcMonotonicQGradientsForElems(Domain& domain)
         dyv = Real_t(-0.25) * ((yv0+yv1+yv5+yv4) - (yv3+yv2+yv6+yv7));
         dzv = Real_t(-0.25) * ((zv0+zv1+zv5+zv4) - (zv3+zv2+zv6+zv7));
 
-        domain.delv_eta(i) = ax*dxv + ay*dyv + az*dzv;
+        delv_eta(i) = ax*dxv + ay*dyv + az*dzv;
     });
 }
 
@@ -1995,16 +2050,49 @@ void CalcMonotonicQRegionForElems(Domain &domain, Int_t r, Real_t ptiny)
 
     Index_t regSize = domain.regElemSize(r);
 
+// -------- Region / topology --------
+auto regElemlist = domain.regElemlist_view();
+auto elemBC      = domain.elemBC_view();
+
+// -------- Neighbors --------
+auto lxim   = domain.lxim_view();
+auto lxip   = domain.lxip_view();
+auto letam  = domain.letam_view();
+auto letap  = domain.letap_view();
+auto lzetam = domain.lzetam_view();
+auto lzetap = domain.lzetap_view();
+
+// -------- Gradients --------
+auto delv_xi   = domain.delv_xi_view();
+auto delv_eta  = domain.delv_eta_view();
+auto delv_zeta = domain.delv_zeta_view();
+
+auto delx_xi   = domain.delx_xi_view();
+auto delx_eta  = domain.delx_eta_view();
+auto delx_zeta = domain.delx_zeta_view();
+
+// -------- State --------
+auto vdov     = domain.vdov_view();
+
+auto volo     = domain.volo_view();
+auto vnew     = domain.vnew_view();
+
+
+auto ql = domain.ql_view();
+auto qq = domain.qq_view();
+
+
+
     Kokkos::parallel_for(
         "CalcMonotonicQRegionForElems",
-        Kokkos::RangePolicy<ExecSpace>(0, regSize),
+        Kokkos::RangePolicy<>(0, regSize),
         KOKKOS_LAMBDA(const Index_t idx)
     {
-        Index_t ielem = domain.regElemlist(r, idx);
+        Index_t ielem = regElemlist(r, idx);
 
         Real_t qlin, qquad;
         Real_t phixi, phieta, phizeta;
-        Int_t bcMask = domain.elemBC(ielem);
+        Int_t bcMask = elemBC(ielem);
         Real_t delvm = 0.0, delvp = 0.0;
 
         /*---------------------------------------------------*
@@ -2015,7 +2103,7 @@ void CalcMonotonicQRegionForElems(Domain &domain, Int_t r, Real_t ptiny)
            norm = 1 / (delv_xi + ptiny)
            归一化系数（防止除零）
         */
-        Real_t norm = Real_t(1.0) / (domain.delv_xi(ielem) + ptiny);
+        Real_t norm = Real_t(1.0) / (delv_xi(ielem) + ptiny);
 
         /* 
            BC du côté -ξ
@@ -2024,10 +2112,10 @@ void CalcMonotonicQRegionForElems(Domain &domain, Int_t r, Real_t ptiny)
         switch (bcMask & XI_M) {
             case XI_M_COMM: /* nécessite des données MPI（被禁用但逻辑保留） */
             case 0:
-                delvm = domain.delv_xi(domain.lxim(ielem));
+                delvm = delv_xi(lxim(ielem));
                 break;
             case XI_M_SYMM:
-                delvm = domain.delv_xi(ielem);
+                delvm = delv_xi(ielem);
                 break;
             case XI_M_FREE:
                 delvm = Real_t(0.0);
@@ -2041,10 +2129,10 @@ void CalcMonotonicQRegionForElems(Domain &domain, Int_t r, Real_t ptiny)
         switch (bcMask & XI_P) {
             case XI_P_COMM:
             case 0:
-                delvp = domain.delv_xi(domain.lxip(ielem));
+                delvp = delv_xi(lxip(ielem));
                 break;
             case XI_P_SYMM:
-                delvp = domain.delv_xi(ielem);
+                delvp = delv_xi(ielem);
                 break;
             case XI_P_FREE:
                 delvp = Real_t(0.0);
@@ -2071,15 +2159,15 @@ void CalcMonotonicQRegionForElems(Domain &domain, Int_t r, Real_t ptiny)
          |                 Direction  η                     |
          *---------------------------------------------------*/
 
-        norm = Real_t(1.0) / (domain.delv_eta(ielem) + ptiny);
+        norm = Real_t(1.0) / (delv_eta(ielem) + ptiny);
 
         switch (bcMask & ETA_M) {
             case ETA_M_COMM:
             case 0:
-                delvm = domain.delv_eta(domain.letam(ielem));
+                delvm = delv_eta(letam(ielem));
                 break;
             case ETA_M_SYMM:
-                delvm = domain.delv_eta(ielem);
+                delvm = delv_eta(ielem);
                 break;
             case ETA_M_FREE:
                 delvm = Real_t(0.0);
@@ -2091,10 +2179,10 @@ void CalcMonotonicQRegionForElems(Domain &domain, Int_t r, Real_t ptiny)
         switch (bcMask & ETA_P) {
             case ETA_P_COMM:
             case 0:
-                delvp = domain.delv_eta(domain.letap(ielem));
+                delvp = delv_eta(letap(ielem));
                 break;
             case ETA_P_SYMM:
-                delvp = domain.delv_eta(ielem);
+                delvp = delv_eta(ielem);
                 break;
             case ETA_P_FREE:
                 delvp = Real_t(0.0);
@@ -2120,15 +2208,15 @@ void CalcMonotonicQRegionForElems(Domain &domain, Int_t r, Real_t ptiny)
          |                 Direction  ζ                     |
          *---------------------------------------------------*/
 
-        norm = Real_t(1.0) / (domain.delv_zeta(ielem) + ptiny);
+        norm = Real_t(1.0) / (delv_zeta(ielem) + ptiny);
 
         switch (bcMask & ZETA_M) {
             case ZETA_M_COMM:
             case 0:
-                delvm = domain.delv_zeta(domain.lzetam(ielem));
+                delvm = delv_zeta(lzetam(ielem));
                 break;
             case ZETA_M_SYMM:
-                delvm = domain.delv_zeta(ielem);
+                delvm = delv_zeta(ielem);
                 break;
             case ZETA_M_FREE:
                 delvm = Real_t(0.0);
@@ -2140,10 +2228,10 @@ void CalcMonotonicQRegionForElems(Domain &domain, Int_t r, Real_t ptiny)
         switch (bcMask & ZETA_P) {
             case ZETA_P_COMM:
             case 0:
-                delvp = domain.delv_zeta(domain.lzetap(ielem));
+                delvp = delv_zeta(lzetap(ielem));
                 break;
             case ZETA_P_SYMM:
-                delvp = domain.delv_zeta(ielem);
+                delvp = delv_zeta(ielem);
                 break;
             case ZETA_P_FREE:
                 delvp = Real_t(0.0);
@@ -2169,21 +2257,21 @@ void CalcMonotonicQRegionForElems(Domain &domain, Int_t r, Real_t ptiny)
          |               Calcul final qlin / qquad          |
          *---------------------------------------------------*/
 
-        if (domain.vdov(ielem) > Real_t(0.0)) {
+        if (vdov(ielem) > Real_t(0.0)) {
             qlin = Real_t(0.0);
             qquad = Real_t(0.0);
         }
         else {
-            Real_t delv_xi_s   = domain.delv_xi(ielem)   * domain.delx_xi(ielem);
-            Real_t delv_eta_s  = domain.delv_eta(ielem)  * domain.delx_eta(ielem);
-            Real_t delv_zeta_s = domain.delv_zeta(ielem) * domain.delx_zeta(ielem);
+            Real_t delv_xi_s   = delv_xi(ielem)   * delx_xi(ielem);
+            Real_t delv_eta_s  = delv_eta(ielem)  * delx_eta(ielem);
+            Real_t delv_zeta_s = delv_zeta(ielem) * delx_zeta(ielem);
 
             if (delv_xi_s   > Real_t(0.0)) delv_xi_s   = Real_t(0.0);
             if (delv_eta_s  > Real_t(0.0)) delv_eta_s  = Real_t(0.0);
             if (delv_zeta_s > Real_t(0.0)) delv_zeta_s = Real_t(0.0);
 
             Real_t rho = domain.elemMass(ielem) /
-                         (domain.volo(ielem) * domain.vnew(ielem));
+                         (volo(ielem) * vnew(ielem));
 
             qlin = -qlc_monoq * rho * (
                 delv_xi_s   * (Real_t(1.0) - phixi) +
@@ -2198,8 +2286,8 @@ void CalcMonotonicQRegionForElems(Domain &domain, Int_t r, Real_t ptiny)
             );
         }
 
-        domain.ql(ielem) = qlin;
-        domain.qq(ielem) = qquad;
+        ql(ielem) = qlin;
+        qq(ielem) = qquad;
     });
 }
 
@@ -2343,7 +2431,7 @@ void CalcPressureForElems(Real_t* p_new,
     */
     Kokkos::parallel_for(
         "CalcPressureForElems_stage1",
-        Kokkos::RangePolicy<ExecSpace>(0, length),
+        Kokkos::RangePolicy<>(0, length),
         KOKKOS_LAMBDA(const Index_t i)
     {
         Real_t c1s = Real_t(2.0) / Real_t(3.0);
@@ -2357,7 +2445,7 @@ void CalcPressureForElems(Real_t* p_new,
     */
     Kokkos::parallel_for(
         "CalcPressureForElems_stage2",
-        Kokkos::RangePolicy<ExecSpace>(0, length),
+        Kokkos::RangePolicy<>(0, length),
         KOKKOS_LAMBDA(const Index_t i)
     {
         Index_t ielem = regElemList[i];
@@ -2414,7 +2502,7 @@ void CalcEnergyForElems(Real_t* p_new, Real_t* e_new, Real_t* q_new,
      *--------------------------------------------------------------*/
     Kokkos::parallel_for(
         "CalcEnergyForElems_e_new_stage1",
-        Kokkos::RangePolicy<ExecSpace>(0, length),
+        Kokkos::RangePolicy<>(0, length),
         KOKKOS_LAMBDA(const Index_t i)
     {
         // e_new = e_old - 1/2 * delvc * (p_old + q_old) + 1/2 * work
@@ -2453,7 +2541,7 @@ void CalcEnergyForElems(Real_t* p_new, Real_t* e_new, Real_t* q_new,
      *--------------------------------------------------------------*/
     Kokkos::parallel_for(
         "CalcEnergyForElems_q_new_stage1",
-        Kokkos::RangePolicy<ExecSpace>(0, length),
+        Kokkos::RangePolicy<>(0, length),
         KOKKOS_LAMBDA(const Index_t i)
     {
         Index_t ielem = regElemList[i];
@@ -2493,7 +2581,7 @@ void CalcEnergyForElems(Real_t* p_new, Real_t* e_new, Real_t* q_new,
      *--------------------------------------------------------------*/
     Kokkos::parallel_for(
         "CalcEnergyForElems_e_new_stage2",
-        Kokkos::RangePolicy<ExecSpace>(0, length),
+        Kokkos::RangePolicy<>(0, length),
         KOKKOS_LAMBDA(const Index_t i)
     {
         Index_t ielem = regElemList[i];
@@ -2512,7 +2600,7 @@ void CalcEnergyForElems(Real_t* p_new, Real_t* e_new, Real_t* q_new,
      *--------------------------------------------------------------*/
     Kokkos::parallel_for(
         "CalcEnergyForElems_e_new_stage3_cleanup",
-        Kokkos::RangePolicy<ExecSpace>(0, length),
+        Kokkos::RangePolicy<>(0, length),
         KOKKOS_LAMBDA(const Index_t i)
     {
         // Ajoute travail résiduel
@@ -2549,7 +2637,7 @@ void CalcEnergyForElems(Real_t* p_new, Real_t* e_new, Real_t* q_new,
      *--------------------------------------------------------------*/
     Kokkos::parallel_for(
         "CalcEnergyForElems_q_tilde_final",
-        Kokkos::RangePolicy<ExecSpace>(0, length),
+        Kokkos::RangePolicy<>(0, length),
         KOKKOS_LAMBDA(const Index_t i)
     {
         const Real_t sixth = Real_t(1.0) / Real_t(6.0);
@@ -2616,7 +2704,7 @@ void CalcEnergyForElems(Real_t* p_new, Real_t* e_new, Real_t* q_new,
 
     Kokkos::parallel_for(
         "CalcEnergyForElems_q_new_clamp",
-        Kokkos::RangePolicy<ExecSpace>(0, length),
+        Kokkos::RangePolicy<>(0, length),
         KOKKOS_LAMBDA(const Index_t i)
     {
         Index_t ielem = regElemList[i];
@@ -2679,7 +2767,6 @@ void EvalEOSForElems(
     Real_t emin    = domain.emin();
     Real_t rho0    = domain.refdens();
 
-    using ES = ExecSpace;
 
     /* ---------------------------------------------
        创建所有临时数组（device-ready）
@@ -2725,19 +2812,29 @@ void EvalEOSForElems(
            压缩 e_old / delvc / p_old / q_old / qq_old / ql_old
            法语：charger les anciennes valeurs des éléments。
         */
+
+
+auto e    = domain.e_view();
+auto delv = domain.delv_view();
+auto p    = domain.p_view();
+auto q    = domain.q_view();
+auto qq   = domain.qq_view();
+auto ql   = domain.ql_view();
+
+
         Kokkos::parallel_for(
             "EOS_load_old",
-            Kokkos::RangePolicy<ES>(0, numElemReg),
+            Kokkos::RangePolicy<>(0, numElemReg),
             KOKKOS_LAMBDA(const Index_t i)
         {
             Index_t ielem = devElemList(i);
 
-            e_old(i)  = domain.e(ielem);
-            delvc(i)  = domain.delv(ielem);
-            p_old(i)  = domain.p(ielem);
-            q_old(i)  = domain.q(ielem);
-            qq_old(i) = domain.qq(ielem);
-            ql_old(i) = domain.ql(ielem);
+            e_old(i)  = e(ielem);
+            delvc(i)  = delv(ielem);
+            p_old(i)  = p(ielem);
+            q_old(i)  = q(ielem);
+            qq_old(i) = qq(ielem);
+            ql_old(i) = ql(ielem);
         });
 
         /* 
@@ -2748,7 +2845,7 @@ void EvalEOSForElems(
         */
         Kokkos::parallel_for(
             "EOS_compression",
-            Kokkos::RangePolicy<ES>(0, numElemReg),
+            Kokkos::RangePolicy<>(0, numElemReg),
             KOKKOS_LAMBDA(const Index_t i)
         {
             Index_t ielem = devElemList(i);
@@ -2766,7 +2863,7 @@ void EvalEOSForElems(
         if (eosvmin != Real_t(0.0)) {
             Kokkos::parallel_for(
                 "EOS_eosvmin_check",
-                Kokkos::RangePolicy<ES>(0, numElemReg),
+                Kokkos::RangePolicy<>(0, numElemReg),
                 KOKKOS_LAMBDA(const Index_t i)
             {
                 Index_t ielem = devElemList(i);
@@ -2779,7 +2876,7 @@ void EvalEOSForElems(
         if (eosvmax != Real_t(0.0)) {
             Kokkos::parallel_for(
                 "EOS_eosvmax_check",
-                Kokkos::RangePolicy<ES>(0, numElemReg),
+                Kokkos::RangePolicy<>(0, numElemReg),
                 KOKKOS_LAMBDA(const Index_t i)
             {
                 Index_t ielem = devElemList(i);
@@ -2798,7 +2895,7 @@ void EvalEOSForElems(
         */
         Kokkos::parallel_for(
             "EOS_reset_work",
-            Kokkos::RangePolicy<ES>(0, numElemReg),
+            Kokkos::RangePolicy<>(0, numElemReg),
             KOKKOS_LAMBDA(const Index_t i)
         {
             work(i) = Real_t(0.0);
@@ -2809,15 +2906,24 @@ void EvalEOSForElems(
            调用 GPU-ready CalcEnergyForElems（上一部分已移植）
         */
         CalcEnergyForElems(
-            p_new, e_new, q_new, bvc, pbvc,
-            p_old, e_old, q_old,
-            compression, compHalfStep,
-            vnewc, work, delvc,
-            pmin, p_cut, e_cut, q_cut, emin,
-            qq_old, ql_old, rho0, eosvmax,
-            numElemReg, devElemList.data()
-        );
+    p_new.data(), e_new.data(), q_new.data(),
+    bvc.data(), pbvc.data(),
+    p_old.data(), e_old.data(), q_old.data(),
+    compression.data(), compHalfStep.data(),
+    vnewc, work.data(), delvc.data(),
+    pmin, p_cut, e_cut, q_cut, emin,
+    qq_old.data(), ql_old.data(),
+    rho0, eosvmax,
+    numElemReg,
+    devElemList.data()
+);
+
     } // end for(rep)
+
+auto p = domain.p_view();
+auto e = domain.e_view();
+auto q = domain.q_view();
+
 
     /* -------------------------------
        将 e_new / p_new / q_new 写回 Domain
@@ -2825,27 +2931,27 @@ void EvalEOSForElems(
        ------------------------------- */
     Kokkos::parallel_for(
         "EOS_writeback",
-        Kokkos::RangePolicy<ES>(0, numElemReg),
+        Kokkos::RangePolicy<>(0, numElemReg),
         KOKKOS_LAMBDA(const Index_t i)
     {
         Index_t ielem = devElemList(i);
-        domain.p(ielem) = p_new(i);
-        domain.e(ielem) = e_new(i);
-        domain.q(ielem) = q_new(i);
+        p(ielem) = p_new(i);
+        e(ielem) = e_new(i);
+        q(ielem) = q_new(i);
     });
 
     /* 
        STEP 7:
        计算 Sound Speed（调用已移植的 GPU-ready 函数）
     */
-    CalcSoundSpeedForElems(
-        domain,
-        vnewc, rho0,
-        e_new.data(), p_new.data(),
-        pbvc.data(), bvc.data(),
-        ss4o3,
-        numElemReg, devElemList.data()
-    );
+   // CalcSoundSpeedForElems(
+   //     domain,
+   //     vnewc, rho0,
+   //     e_new.data(), p_new.data(),
+   //     pbvc.data(), bvc.data(),
+   //     ss4o3,
+   //     numElemReg, devElemList.data()
+   // );
 }
 
 /*
@@ -2858,7 +2964,6 @@ void ApplyMaterialPropertiesForElems(Domain& domain)
     Index_t numElem = domain.numElem();
     if (numElem == 0) return;
 
-    using ES = ExecSpace;
 
     /* ----------------------------------------------------------
        Préparer les volumes relatifs vnewc（新体积的副本）
@@ -2872,7 +2977,7 @@ void ApplyMaterialPropertiesForElems(Domain& domain)
     */
     Kokkos::parallel_for(
         "Load_vnewc",
-        Kokkos::RangePolicy<ES>(0, numElem),
+        Kokkos::RangePolicy<>(0, numElem),
         KOKKOS_LAMBDA(const Index_t i)
     {
         vnewc(i) = domain.vnew(i);
@@ -2892,7 +2997,7 @@ void ApplyMaterialPropertiesForElems(Domain& domain)
     if (eosvmin != Real_t(0.0)) {
         Kokkos::parallel_for(
             "Clamp_vnewc_min",
-            Kokkos::RangePolicy<ES>(0, numElem),
+            Kokkos::RangePolicy<>(0, numElem),
             KOKKOS_LAMBDA(const Index_t i)
         {
             if (vnewc(i) < eosvmin)
@@ -2903,7 +3008,7 @@ void ApplyMaterialPropertiesForElems(Domain& domain)
     if (eosvmax != Real_t(0.0)) {
         Kokkos::parallel_for(
             "Clamp_vnewc_max",
-            Kokkos::RangePolicy<ES>(0, numElem),
+            Kokkos::RangePolicy<>(0, numElem),
             KOKKOS_LAMBDA(const Index_t i)
         {
             if (vnewc(i) > eosvmax)
@@ -2918,7 +3023,7 @@ void ApplyMaterialPropertiesForElems(Domain& domain)
        ---------------------------------------------------------- */
     Kokkos::parallel_for(
         "Check_old_v",
-        Kokkos::RangePolicy<ES>(0, numElem),
+        Kokkos::RangePolicy<>(0, numElem),
         KOKKOS_LAMBDA(const Index_t i)
     {
         Real_t vc = domain.v(i);
@@ -2949,8 +3054,17 @@ void ApplyMaterialPropertiesForElems(Domain& domain)
 
         Index_t numElemReg = domain.regElemSize(r);
         if (numElemReg == 0) continue;
+Kokkos::View<Index_t*> devElemList("devElemList", numElemReg);
+{
+    auto host = Kokkos::create_mirror_view(devElemList);
+    auto regElemlist = domain.regElemlist_view();
+    for (Index_t i = 0; i < numElemReg; ++i)
+        host(i) = regElemlist(r, i);
+    Kokkos::deep_copy(devElemList, host);
+}
 
-        Index_t* regElemList = domain.regElemlist(r);
+
+        
 
         /* 
            Déterminer le coût（workload imbalance simulation）
@@ -2972,7 +3086,7 @@ void ApplyMaterialPropertiesForElems(Domain& domain)
             domain,
             vnewc.data(),     // device pointer
             numElemReg,
-            regElemList,      // host pointer → EvalEOS 内部会复制
+            devElemList.data(),      // host pointer → EvalEOS 内部会复制
             rep
         );
     }
@@ -2996,11 +3110,9 @@ void UpdateVolumesForElems(Domain &domain,
 {
     if (length == 0) return;
 
-    using ES = ExecSpace;
-
     Kokkos::parallel_for(
         "UpdateVolumesForElems",
-        Kokkos::RangePolicy<ES>(0, length),
+        Kokkos::RangePolicy<>(0, length),
         KOKKOS_LAMBDA(const Index_t i)
     {
         /* 
@@ -3081,7 +3193,6 @@ void CalcCourantConstraintForElems(
 {
     if (length == 0) return;
 
-    using ES = ExecSpace;
 
     /* ------------------------------------------------------------
        Copier regElemlist depuis host vers device
@@ -3090,7 +3201,7 @@ void CalcCourantConstraintForElems(
     Kokkos::View<Index_t*> regElemlist("regElemlist", length);
     Kokkos::parallel_for(
         "Copy_regElemlist",
-        Kokkos::RangePolicy<ES>(0, length),
+        Kokkos::RangePolicy<>(0, length),
         KOKKOS_LAMBDA(const Index_t i) {
             regElemlist(i) = regElemlist_host[i];
         });
@@ -3116,7 +3227,7 @@ void CalcCourantConstraintForElems(
 
     Kokkos::parallel_reduce(
         "CalcCourantConstraintForElems",
-        Kokkos::RangePolicy<ES>(0, length),
+        Kokkos::RangePolicy<>(0, length),
 
         KOKKOS_LAMBDA(const Index_t i, MinVal& localMin)
         {
@@ -3163,7 +3274,6 @@ void CalcHydroConstraintForElems(
 ){
     if (length == 0) return;
 
-    using ES = ExecSpace;
 
     /* ------------------------------------------------------------
        Copier regElemlist vers device
@@ -3173,7 +3283,7 @@ void CalcHydroConstraintForElems(
 
     Kokkos::parallel_for(
         "Copy_regElemlist_hydro",
-        Kokkos::RangePolicy<ES>(0, length),
+        Kokkos::RangePolicy<>(0, length),
         KOKKOS_LAMBDA(const Index_t i)
     {
         regElemlist(i) = regElemlist_host[i];
@@ -3198,7 +3308,7 @@ void CalcHydroConstraintForElems(
        ------------------------------------------------------------ */
     Kokkos::parallel_reduce(
         "CalcHydroConstraintForElems",
-        Kokkos::RangePolicy<ES>(0, length),
+        Kokkos::RangePolicy<>(0, length),
 
         KOKKOS_LAMBDA(const Index_t i, MinHydro& localMin)
         {

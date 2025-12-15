@@ -152,6 +152,108 @@ public:
     * Remplace std::vector::resize par Kokkos::View / 用 Kokkos::View 替代 vector
     */
    void SetupInitialVolumesAndMasses();
+  
+// ---- View accessors (write in Kokkos kernels)
+KOKKOS_INLINE_FUNCTION
+auto vdov_view() const { return m_vdov; }
+
+// Volume de référence
+KOKKOS_INLINE_FUNCTION
+auto volo_view() const { return m_volo; }
+
+// Connectivité élément → nœuds
+KOKKOS_INLINE_FUNCTION
+auto nodelist_view() const { return m_nodelist; }
+
+// Longueurs caractéristiques directionnelles
+KOKKOS_INLINE_FUNCTION
+auto delx_zeta_view() const { return m_delx_zeta; }
+
+KOKKOS_INLINE_FUNCTION
+auto delx_xi_view() const { return m_delx_xi; }
+
+KOKKOS_INLINE_FUNCTION
+auto delx_eta_view() const { return m_delx_eta; }
+
+
+// Gradients de vitesse directionnels
+KOKKOS_INLINE_FUNCTION
+auto delv_zeta_view() const { return m_delv_zeta; }
+
+KOKKOS_INLINE_FUNCTION
+auto delv_xi_view() const { return m_delv_xi; }
+
+KOKKOS_INLINE_FUNCTION
+auto delv_eta_view() const { return m_delv_eta; }
+
+// -------- Region / topology --------
+Kokkos::View<Index_t**> regElemlist_view() const { return m_regElemlist; }
+Kokkos::View<Int_t*>    elemBC_view()      const { return m_elemBC; }
+
+// -------- Neighbors --------
+Kokkos::View<Index_t*> lxim_view()   const { return m_lxim; }
+Kokkos::View<Index_t*> lxip_view()   const { return m_lxip; }
+Kokkos::View<Index_t*> letam_view()  const { return m_letam; }
+Kokkos::View<Index_t*> letap_view()  const { return m_letap; }
+Kokkos::View<Index_t*> lzetam_view() const { return m_lzetam; }
+Kokkos::View<Index_t*> lzetap_view() const { return m_lzetap; }
+
+
+Kokkos::View<Real_t*> ql_view() const { return m_ql; }
+Kokkos::View<Real_t*> qq_view() const { return m_qq; }
+
+
+Kokkos::View<Real_t*> e_view()    const { return m_e; }
+Kokkos::View<Real_t*> delv_view() const { return m_delv; }
+Kokkos::View<Real_t*> p_view()    const { return m_p; }
+Kokkos::View<Real_t*> q_view()    const { return m_q; }
+
+Kokkos::View<Real_t*> vnew_view()   const { return m_vnew; }
+Kokkos::View<Real_t*> arealg_view() const { return m_arealg; }
+Kokkos::View<Real_t*> dxx_view()    const { return m_dxx; }
+Kokkos::View<Real_t*> dyy_view()    const { return m_dyy; }
+Kokkos::View<Real_t*> dzz_view()    const { return m_dzz; }
+
+
+ 
+   KOKKOS_INLINE_FUNCTION
+   Kokkos::View<Index_t*> symmX_view()const { return m_symmX; }
+
+   KOKKOS_INLINE_FUNCTION
+   Kokkos::View<Index_t*> symmY_view()const { return m_symmY; }
+
+   KOKKOS_INLINE_FUNCTION
+   Kokkos::View<Index_t*> symmZ_view()const { return m_symmZ; }
+
+// --- Views getters for Kokkos kernels / 并行核使用的 View 接口
+KOKKOS_INLINE_FUNCTION
+Kokkos::View<Real_t*> xd_view()  const { return m_xd; }
+
+KOKKOS_INLINE_FUNCTION
+Kokkos::View<Real_t*> yd_view()  const { return m_yd; }
+
+KOKKOS_INLINE_FUNCTION
+Kokkos::View<Real_t*> zd_view()  const { return m_zd; }
+
+KOKKOS_INLINE_FUNCTION
+Kokkos::View<Real_t*> xdd_view() const { return m_xdd; }
+
+KOKKOS_INLINE_FUNCTION
+Kokkos::View<Real_t*> ydd_view() const { return m_ydd; }
+
+KOKKOS_INLINE_FUNCTION
+Kokkos::View<Real_t*> zdd_view() const { return m_zdd; }
+
+KOKKOS_INLINE_FUNCTION
+Kokkos::View<Real_t*> x_view() const { return m_x; }
+
+KOKKOS_INLINE_FUNCTION
+Kokkos::View<Real_t*> y_view() const { return m_y; }
+
+KOKKOS_INLINE_FUNCTION
+Kokkos::View<Real_t*> z_view() const { return m_z; }
+
+
 
    void AllocateNodePersistent(Int_t numNode)
    {
@@ -466,19 +568,54 @@ public:
    Int_t& elemBC(Index_t idx) { return m_elemBC(idx); }
 
    // Déformations principales / 主应变
-   KOKKOS_INLINE_FUNCTION Real_t& dxx(Index_t idx){ return m_dxx(idx); }
-   KOKKOS_INLINE_FUNCTION Real_t& dyy(Index_t idx){ return m_dyy(idx); }
-   KOKKOS_INLINE_FUNCTION Real_t& dzz(Index_t idx){ return m_dzz(idx); }
+
+// 写访问（用于更新）
+KOKKOS_INLINE_FUNCTION
+Real_t& dxx(Index_t idx) { return m_dxx(idx); }
+
+KOKKOS_INLINE_FUNCTION
+Real_t& dyy(Index_t idx) { return m_dyy(idx); }
+
+KOKKOS_INLINE_FUNCTION
+Real_t& dzz(Index_t idx) { return m_dzz(idx); }
+
+// 读访问（const，用于计算）
+KOKKOS_INLINE_FUNCTION
+Real_t dxx(Index_t idx) const { return m_dxx(idx); }
+
+KOKKOS_INLINE_FUNCTION
+Real_t dyy(Index_t idx) const { return m_dyy(idx); }
+
+KOKKOS_INLINE_FUNCTION
+Real_t dzz(Index_t idx) const { return m_dzz(idx); }
+
 
    // Nouveau volume relatif / 新相对体积
-   KOKKOS_INLINE_FUNCTION Real_t& vnew(Index_t idx){ return m_vnew(idx); }
+   KOKKOS_INLINE_FUNCTION Real_t& vnew(Index_t idx)const { return m_vnew(idx); }
 
-   // Gradients de vitesse / 速度梯度
-   KOKKOS_INLINE_FUNCTION Real_t& delv_xi(Index_t idx){ return m_delv_xi(idx); }
-   KOKKOS_INLINE_FUNCTION Real_t& delv_eta(Index_t idx){ return m_delv_eta(idx); }
-   KOKKOS_INLINE_FUNCTION Real_t& delv_zeta(Index_t idx){ return m_delv_zeta(idx); }
+    // Gradients de vitesse / 速度梯度
 
-   // Gradients de position / 位置梯度
+// 写访问（非 const，用于更新）
+KOKKOS_INLINE_FUNCTION
+Real_t& delv_xi(Index_t idx) { return m_delv_xi(idx); }
+
+KOKKOS_INLINE_FUNCTION
+Real_t& delv_eta(Index_t idx) { return m_delv_eta(idx); }
+
+KOKKOS_INLINE_FUNCTION
+Real_t& delv_zeta(Index_t idx) { return m_delv_zeta(idx); }
+
+// 读访问（const，用于计算）
+KOKKOS_INLINE_FUNCTION
+Real_t delv_xi(Index_t idx) const { return m_delv_xi(idx); }
+
+KOKKOS_INLINE_FUNCTION
+Real_t delv_eta(Index_t idx) const { return m_delv_eta(idx); }
+
+KOKKOS_INLINE_FUNCTION
+Real_t delv_zeta(Index_t idx) const { return m_delv_zeta(idx); }
+
+  // Gradients de position / 位置梯度
    KOKKOS_INLINE_FUNCTION Real_t& delx_xi(Index_t idx){ return m_delx_xi(idx); }
    KOKKOS_INLINE_FUNCTION Real_t& delx_eta(Index_t idx){ return m_delx_eta(idx); }
    KOKKOS_INLINE_FUNCTION Real_t& delx_zeta(Index_t idx){ return m_delx_zeta(idx); }
@@ -499,28 +636,62 @@ public:
    KOKKOS_INLINE_FUNCTION Real_t& ql(Index_t idx){ return m_ql(idx); }
    KOKKOS_INLINE_FUNCTION Real_t& qq(Index_t idx){ return m_qq(idx); }
 
-   // Volume relatif / 相对体积
-   KOKKOS_INLINE_FUNCTION Real_t& v(Index_t idx)const { return m_v(idx); }
+    // Volume relatif / 相对体积
+KOKKOS_INLINE_FUNCTION
+Real_t& v(Index_t idx) { return m_v(idx); }
 
-   // Variation de volume / 体积变化
-   KOKKOS_INLINE_FUNCTION Real_t& delv(Index_t idx){ return m_delv(idx); }
+KOKKOS_INLINE_FUNCTION
+Real_t v(Index_t idx) const { return m_v(idx); }
 
-   // Volume de référence / 参考体积
-   KOKKOS_INLINE_FUNCTION Real_t& volo(Index_t idx)const { return m_volo(idx); }
 
-   // dérivée du volume / 体积导数
-   KOKKOS_INLINE_FUNCTION Real_t& vdov(Index_t idx){ return m_vdov(idx); }
+// Variation de volume / 体积变化
+KOKKOS_INLINE_FUNCTION
+Real_t& delv(Index_t idx) { return m_delv(idx); }
 
-   // Longueur caractéristique / 特征长度
-   KOKKOS_INLINE_FUNCTION Real_t& arealg(Index_t idx){ return m_arealg(idx); }
+KOKKOS_INLINE_FUNCTION
+Real_t delv(Index_t idx) const { return m_delv(idx); }
 
-   // Vitesse du son / 声速
-   KOKKOS_INLINE_FUNCTION Real_t& ss(Index_t idx)const { return m_ss(idx); }
 
-   // Masse élémentaire / 单元质量
-   KOKKOS_INLINE_FUNCTION Real_t& elemMass(Index_t idx)const { return m_elemMass(idx); }
+// Volume de référence / 参考体积
+KOKKOS_INLINE_FUNCTION
+Real_t& volo(Index_t idx) { return m_volo(idx); }
 
-   //
+KOKKOS_INLINE_FUNCTION
+Real_t volo(Index_t idx) const { return m_volo(idx); }
+
+
+// dérivée du volume / 体积导数
+KOKKOS_INLINE_FUNCTION
+Real_t& vdov(Index_t idx) { return m_vdov(idx); }
+
+KOKKOS_INLINE_FUNCTION
+Real_t vdov(Index_t idx) const { return m_vdov(idx); }
+
+
+// Longueur caractéristique / 特征长度
+KOKKOS_INLINE_FUNCTION
+Real_t& arealg(Index_t idx) { return m_arealg(idx); }
+
+KOKKOS_INLINE_FUNCTION
+Real_t arealg(Index_t idx) const { return m_arealg(idx); }
+
+
+// Vitesse du son / 声速
+KOKKOS_INLINE_FUNCTION
+Real_t& ss(Index_t idx) { return m_ss(idx); }
+
+KOKKOS_INLINE_FUNCTION
+Real_t ss(Index_t idx) const { return m_ss(idx); }
+
+
+// Masse élémentaire / 单元质量
+KOKKOS_INLINE_FUNCTION
+Real_t& elemMass(Index_t idx) { return m_elemMass(idx); }
+
+KOKKOS_INLINE_FUNCTION
+Real_t elemMass(Index_t idx) const { return m_elemMass(idx); }
+
+
    // Informations de connectivité nodale / 节点邻接信息
    //
 
