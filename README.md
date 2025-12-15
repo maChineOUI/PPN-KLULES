@@ -48,14 +48,16 @@ Dans cette version :
 Arborescence actuelle :
 
 ```text
-├── includes
-│   ├── cycle.h
-│   └── Timer.hxx
+├── build
+├── build.log
+├── CMakeLists.txt
+├── lulesh_tuple.h
+├── lulesh-comm.cc
 ├── lulesh-init.cc
 ├── lulesh-util.cc
+├── lulesh-viz.cc
 ├── lulesh.cc
-├── lulesh.h
-└── Makefile
+└── lulesh.h
 ```
 
 ---
@@ -99,17 +101,7 @@ Contient les versions Kokkos des kernels :
 
 ---
 
-## **2.2 Composants utilitaires empruntés**
-
-### **includes/Timer.hxx & includes/cycle.h**
-
-* `cycle.h` : lecture du compteur de cycles CPU.
-* `Timer.hxx` : classe `RAJA::Timer` (ticks, clock, timespec).
-* Utilisé uniquement pour le profilage, sans logique spécifique à LULESH.
-
----
-
-## **2.3 Différences avec une version complète Kokkos (CPU + GPU)**
+## **2.2 Différences avec une version complète Kokkos (CPU + GPU)**
 
 ### **Non inclus :**
 
@@ -171,7 +163,7 @@ Fang Zijie (GitHub : FANG-leo)
 
 Wei Wei (GitHub : maChineOUI)
 
-## **Répartition (au 6 décembre)**
+## **Répartition (au 14 décembre)**
 
 ### **Huang, Fang, Wei：**
 
