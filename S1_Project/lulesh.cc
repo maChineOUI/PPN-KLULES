@@ -155,6 +155,17 @@ Additional BSD Notice
 #include <iostream>
 #include <unistd.h>
 
+#include <chrono>
+
+static inline double wall_clock()
+{
+  using clock = std::chrono::steady_clock;
+  static const auto t0 = clock::now();
+  const auto t1 = clock::now();
+  return std::chrono::duration<double>(t1 - t0).count();
+}
+
+
 #if _OPENMP
 # include <omp.h>
 #endif
@@ -1049,14 +1060,17 @@ void CalcForceForNodes(Domain& domain)
       Mise à zéro des forces nodales fx, fy, fz
       将所有节点力 fx/fy/fz 清零
    */
+   auto fx = domain.fx_view();
+   auto fy = domain.fy_view();
+   auto fz = domain.fz_view();
    Kokkos::parallel_for(
       "ZeroNodeForces",
       Kokkos::RangePolicy<>(0, numNode),
-      KOKKOS_LAMBDA(const Index_t i) mutable
+      KOKKOS_LAMBDA(const Index_t i)
    {
-      domain.fx(i) = Real_t(0.0);
-      domain.fy(i) = Real_t(0.0);
-      domain.fz(i) = Real_t(0.0);
+      fx(i) = Real_t(0.0);
+      fy(i) = Real_t(0.0);
+      fz(i) = Real_t(0.0);
    });
 
    /* 
@@ -3109,6 +3123,7 @@ void UpdateVolumesForElems(Domain &domain,
                            Index_t length) // nombre total d’éléments
 {
     if (length == 0) return;
+    auto v = domain.v_view();
 
     Kokkos::parallel_for(
         "UpdateVolumesForElems",
@@ -3134,7 +3149,7 @@ void UpdateVolumesForElems(Domain &domain,
            Écrit le volume final dans domain.v(i)
            写回最终体积
         */
-        domain.v(i) = tmpV;
+        v(i) = tmpV;
     });
 }
 
@@ -3184,61 +3199,40 @@ void LagrangeElements(Domain& domain, Index_t numElem)
    计算 Courant 时间步约束（用于稳定性限制）。
 */
 KOKKOS_INLINE_FUNCTION
+KOKKOS_INLINE_FUNCTION
 void CalcCourantConstraintForElems(
     Domain& domain,
     Index_t length,
-    Index_t* regElemlist_host,
-    Real_t qqc,
-    Real_t& dtcourant_out )
+    Index_t* regElemlist_host, /* host 上的单元列表 */
+    Real_t qqc2,
+    Real_t& dtcourant_out)
 {
     if (length == 0) return;
 
+    // 初始化为很大的值
+    dtcourant_out = Real_t(1.0e+20);
 
-    /* ------------------------------------------------------------
-       Copier regElemlist depuis host vers device
-       将 regElemlist 从 host 复制到 device
-       ------------------------------------------------------------ */
-    Kokkos::View<Index_t*> regElemlist("regElemlist", length);
+    // host -> device/exec-space view
+    Kokkos::View<Index_t*> regList_c("regElemlist_courant", length);
     Kokkos::parallel_for(
-        "Copy_regElemlist",
+        "CopyRegElemListCourant",
         Kokkos::RangePolicy<>(0, length),
         KOKKOS_LAMBDA(const Index_t i) {
-            regElemlist(i) = regElemlist_host[i];
+            regList_c(i) = regElemlist_host[i];
         });
-
-    /* 
-       qqc2 = 64 * qqc^2
-       LULESH 原始公式
-    */
-    Real_t qqc2 = Real_t(64.0) * qqc * qqc;
-
-    /* ------------------------------------------------------------
-       使用 Kokkos 并行规约寻找最小的 dt 值
-       ------------------------------------------------------------ */
-
-    struct MinVal {
-        Real_t dt;
-        Index_t elem;
-    };
-
-    MinVal init;
-    init.dt = dtcourant_out;
-    init.elem = -1;
 
     Kokkos::parallel_reduce(
         "CalcCourantConstraintForElems",
         Kokkos::RangePolicy<>(0, length),
-
-        KOKKOS_LAMBDA(const Index_t i, MinVal& localMin)
+        KOKKOS_LAMBDA(const Index_t i, Real_t& localMin)
         {
-            Index_t indx = regElemlist(i);
+            const Index_t indx = regList_c(i);
 
-            Real_t ss = domain.ss(indx);
-            Real_t arealg = domain.arealg(indx);
-            Real_t vdov = domain.vdov(indx);
+            const Real_t ss     = domain.ss(indx);
+            const Real_t arealg = domain.arealg(indx);
+            const Real_t vdov   = domain.vdov(indx);
 
             Real_t dtf = ss * ss;
-
             if (vdov < Real_t(0.0)) {
                 dtf += qqc2 * arealg * arealg * vdov * vdov;
             }
@@ -3246,18 +3240,12 @@ void CalcCourantConstraintForElems(
             dtf = SQRT(dtf);
             dtf = arealg / dtf;
 
-            if (vdov != Real_t(0.0)) {
-                if (dtf < localMin.dt) {
-                    localMin.dt = dtf;
-                    localMin.elem = indx;
-                }
+            if (vdov != Real_t(0.0) && dtf < localMin) {
+                localMin = dtf;
             }
         },
-
-        Kokkos::MinReducer<MinVal>(dtcourant_out)  // reducer
+        Kokkos::Min<Real_t>(dtcourant_out)
     );
-
-    // 最终 dtcourant_out 已在 reducer 中写入
 }
 
 /*
@@ -3265,78 +3253,41 @@ void CalcCourantConstraintForElems(
    计算流体力学时间步约束（基于体积变化率 vdov）。
 */
 KOKKOS_INLINE_FUNCTION
+KOKKOS_INLINE_FUNCTION
 void CalcHydroConstraintForElems(
     Domain& domain,
     Index_t length,
-    Index_t* regElemlist_host, /* liste d’éléments sur host / host 上的单元列表 */
-    Real_t dvovmax,            /* seuil maximal sur |vdov| / 最大体积变化率 */
-    Real_t& dthydro_out        /* valeur de dt (réduction) / 输出的 dthydro */
-){
+    Index_t* regElemlist_host, /* host 上的单元列表 */
+    Real_t dvovmax,
+    Real_t& dthydro_out)
+{
     if (length == 0) return;
 
+    dthydro_out = Real_t(1.0e+20);
 
-    /* ------------------------------------------------------------
-       Copier regElemlist vers device
-       将 regElemlist 从 host 复制到 device
-       ------------------------------------------------------------ */
-    Kokkos::View<Index_t*> regElemlist("regElemlist_hydro", length);
-
+    Kokkos::View<Index_t*> regList_h("regList_h", length);
     Kokkos::parallel_for(
-        "Copy_regElemlist_hydro",
+        "CopyRegElemListHydro",
         Kokkos::RangePolicy<>(0, length),
-        KOKKOS_LAMBDA(const Index_t i)
-    {
-        regElemlist(i) = regElemlist_host[i];
-    });
+        KOKKOS_LAMBDA(const Index_t i) {
+            regList_h(i) = regElemlist_host[i];
+        });
 
-
-    /* ------------------------------------------------------------
-       并行规约结构体：
-       用于找到最小 dtdvov
-       ------------------------------------------------------------ */
-    struct MinHydro {
-        Real_t dt;
-        Index_t elem;
-    };
-
-    MinHydro init;
-    init.dt   = dthydro_out;  // 初始值（非常大）
-    init.elem = -1;
-
-    /* ------------------------------------------------------------
-       parallel_reduce：寻找所有单元中最小的 dtdvov
-       ------------------------------------------------------------ */
     Kokkos::parallel_reduce(
         "CalcHydroConstraintForElems",
         Kokkos::RangePolicy<>(0, length),
-
-        KOKKOS_LAMBDA(const Index_t i, MinHydro& localMin)
+        KOKKOS_LAMBDA(const Index_t i, Real_t& localMin)
         {
-            Index_t indx = regElemlist(i);
-            Real_t vdov = domain.vdov(indx);
+            const Index_t indx = regList_h(i);
+            const Real_t vdov  = domain.vdov(indx);
 
             if (vdov != Real_t(0.0)) {
-                /* 
-                   dtdvov = dvovmax / |vdov|
-                   时间步基于体积变化率上限
-                */
-                Real_t dtdvov = dvovmax / (FABS(vdov) + Real_t(1.e-20));
-
-                /* 
-                   Stocker le plus petit
-                   存储最小值
-                */
-                if (dtdvov < localMin.dt) {
-                    localMin.dt = dtdvov;
-                    localMin.elem = indx;
-                }
+                const Real_t dtdvov = dvovmax / (FABS(vdov) + Real_t(1.e-20));
+                if (dtdvov < localMin) localMin = dtdvov;
             }
         },
-
-        Kokkos::MinReducer<MinHydro>(dthydro_out)
+        Kokkos::Min<Real_t>(dthydro_out)
     );
-
-    /* dthydro_out 已由 reducer 填充 */
 }
 
 /*
@@ -3364,7 +3315,7 @@ void CalcTimeConstraintsForElems(Domain& domain)
         Index_t length = domain.regElemSize(r);
         if (length == 0) continue;
 
-        Index_t* regList = domain.regElemlist(r);
+        Index_t* regList = &domain.regElemlist(r, Index_t(0));
 
         /* 
            1) Contrainte de Courant
@@ -3434,6 +3385,7 @@ void LagrangeLeapFrog(Domain& domain)
    Calcule l'incrément de temps (dt) pour l'itération suivante.
    根据 Courant/Hydro 约束计算下一步时间增量 dt。
 */
+#if 0
 KOKKOS_INLINE_FUNCTION
 void TimeIncrement(Domain& domain)
 {
@@ -3500,11 +3452,13 @@ void TimeIncrement(Domain& domain)
     domain.cycle()++;                // augmenter le compteur d’itérations
                                      // 迭代计数器 +1
 }
+#endif
 
 /*
    Met à jour les quantités nodales : forces, accélérations, vitesses, positions.
    更新节点物理量：力、加速度、速度、位置。
 */
+#if 0
 KOKKOS_INLINE_FUNCTION
 void LagrangeNodal(Domain& domain)
 {
@@ -3538,6 +3492,7 @@ void LagrangeNodal(Domain& domain)
     */
     CalcPositionForNodes(domain);
 }
+#endif
 
 #include <Kokkos_Core.hpp>
 
@@ -3641,3 +3596,18 @@ int main(int argc, char* argv[])
 
     return 0;
 }
+
+/* =========================================================
+ * Array/pointer signature wrapper for CalcElemVolume
+ * This matches the prototype in lulesh.h:
+ *   Real_t CalcElemVolume(const Real_t x[8], const Real_t y[8], const Real_t z[8]);
+ * ========================================================= */
+Real_t CalcElemVolume(const Real_t x[8], const Real_t y[8], const Real_t z[8])
+{
+  return CalcElemVolume(
+    x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7],
+    y[0], y[1], y[2], y[3], y[4], y[5], y[6], y[7],
+    z[0], z[1], z[2], z[3], z[4], z[5], z[6], z[7]
+  );
+}
+

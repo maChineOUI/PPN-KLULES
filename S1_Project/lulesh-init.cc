@@ -182,6 +182,115 @@ Domain::Domain(Int_t numRanks, Index_t colLoc,
     cycle()          = Int_t(0);
 }
 
+// -----------------------------------------------------------------------------
+// Missing Domain methods (Kokkos 5.0 port, CPU/Serial-friendly)
+// 缺失的 Domain 成员函数补齐（Kokkos 5.0 / CPU 串行版）
+// -----------------------------------------------------------------------------
+
+// Out-of-line destructor definition (fixes linker undefined symbol)
+Domain::~Domain() = default;
+
+// Serial build: keep interface, no MPI comm buffers.
+void Domain::SetupCommBuffers(Int_t edgeNodes)
+{
+  (void)edgeNodes;
+}
+
+// Optional: keep symbol available; can be implemented later if needed.
+void Domain::SetupThreadSupportStructures()
+{
+  // no-op for now (serial)
+}
+
+/*
+ * BuildMesh — build regular mesh coordinates + element connectivity.
+ * 中文：构建规则立方网格的节点坐标(x,y,z)与单元8节点连接(nodelist)
+ *
+ * 说明：这里用 Domain 的现有访问接口 x()/y()/z() 和 nodelist(elem)
+ *       不假设你内部 View 的维度/名字，避免与你当前改造冲突。
+ */
+void Domain::BuildMesh(Int_t nx, Int_t edgeNodes, Int_t edgeElems)
+{
+  const Index_t meshEdgeElems =
+      static_cast<Index_t>(m_tp) * static_cast<Index_t>(nx);
+
+  // -----------------------
+  // 1) Node coordinates
+  // -----------------------
+  Index_t nidx = 0;
+
+  Real_t tz = Real_t(1.125) *
+              Real_t(static_cast<Index_t>(m_planeLoc) * nx) /
+              Real_t(meshEdgeElems);
+
+  for (Index_t plane = 0; plane < static_cast<Index_t>(edgeNodes); ++plane) {
+
+    Real_t ty = Real_t(1.125) *
+                Real_t(static_cast<Index_t>(m_rowLoc) * nx) /
+                Real_t(meshEdgeElems);
+
+    for (Index_t row = 0; row < static_cast<Index_t>(edgeNodes); ++row) {
+
+      Real_t tx = Real_t(1.125) *
+                  Real_t(static_cast<Index_t>(m_colLoc) * nx) /
+                  Real_t(meshEdgeElems);
+
+      for (Index_t col = 0; col < static_cast<Index_t>(edgeNodes); ++col) {
+        x(nidx) = tx;
+        y(nidx) = ty;
+        z(nidx) = tz;
+        ++nidx;
+
+        tx = Real_t(1.125) *
+             Real_t(static_cast<Index_t>(m_colLoc) * nx + col + 1) /
+             Real_t(meshEdgeElems);
+      }
+
+      ty = Real_t(1.125) *
+           Real_t(static_cast<Index_t>(m_rowLoc) * nx + row + 1) /
+           Real_t(meshEdgeElems);
+    }
+
+    tz = Real_t(1.125) *
+         Real_t(static_cast<Index_t>(m_planeLoc) * nx + plane + 1) /
+         Real_t(meshEdgeElems);
+  }
+
+  // -----------------------
+  // 2) Element connectivity (8 nodes per hex)
+  // -----------------------
+  Index_t zidx = 0;
+  nidx = 0;
+
+  for (Index_t plane = 0; plane < static_cast<Index_t>(edgeElems); ++plane) {
+    for (Index_t row = 0; row < static_cast<Index_t>(edgeElems); ++row) {
+      for (Index_t col = 0; col < static_cast<Index_t>(edgeElems); ++col) {
+
+        Index_t* nl = nodelist(zidx);
+
+        const Index_t base        = nidx;
+        const Index_t stride      = static_cast<Index_t>(edgeNodes);
+        const Index_t planeStride = stride * stride;
+
+        nl[0] = base;
+        nl[1] = base + 1;
+        nl[2] = base + stride + 1;
+        nl[3] = base + stride;
+        nl[4] = base + planeStride;
+        nl[5] = base + planeStride + 1;
+        nl[6] = base + planeStride + stride + 1;
+        nl[7] = base + planeStride + stride;
+
+        ++zidx;
+        ++nidx;
+      }
+      ++nidx; // skip last node in row
+    }
+    nidx += static_cast<Index_t>(edgeNodes); // skip last row in plane
+  }
+}
+
+
 /*--------------------------------------------------------------*
  |   Partie A.2 — Initialisation volumique et énergie initiale  |
  |   A.2 部分 — 单元体积、质量与初始能量初始化（Kokkos 版本）   |

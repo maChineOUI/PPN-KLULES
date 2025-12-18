@@ -157,6 +157,7 @@ public:
 KOKKOS_INLINE_FUNCTION
 auto vdov_view() const { return m_vdov; }
 
+auto v_view() const { return m_v; }
 // Volume de référence
 KOKKOS_INLINE_FUNCTION
 auto volo_view() const { return m_volo; }
