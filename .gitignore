@@ -5,3 +5,7 @@
 *.bak.*
 *~
 *.orig
+
+# build outputs
+build/
+
