@@ -1,0 +1,11 @@
+threads,impl,time,fom
+4,baseline,6.2,4086.137
+8,baseline,4.6,5421.6393
+16,baseline,4.3,5839.4872
+24,baseline,4.7,5410.9807
+32,baseline,5.7,4423.1131
+4,kokkos,10.64,2364.7564
+8,kokkos,7.19,3498.3492
+16,kokkos,6.95,3622.5604
+24,kokkos,7.96,3160.676
+32,kokkos,11.51,2187.0228
