@@ -165,6 +165,22 @@ Domain::Domain(Int_t numRanks, Index_t colLoc,
      */
     SetupBoundaryConditions(edgeElems);
     SetupInitialVolumesAndMasses();
+    SetupThreadSupportStructures();
+
+    // --- Sedov blast: initial energy + initial timestep (match reference LULESH)
+    {
+      const Real_t ebase = Real_t(3.948746e+7);
+      const Real_t scale = Real_t(nx * m_tp) / Real_t(45.0);
+      const Real_t einit = ebase * scale * scale * scale;
+
+      // deposit initial energy in origin element
+      if ((m_rowLoc + m_colLoc + m_planeLoc) == 0) {
+        e(0) = einit;
+      }
+      // set initial dt from element-0 volume and deposited energy
+      deltatime() = (Real_t(0.5) * CBRT(volo(0))) / SQRT(Real_t(2.0) * einit);
+    }
+
 
 
     /*
@@ -193,7 +209,30 @@ Domain::~Domain() = default;
 // Serial build: keep interface, no MPI comm buffers.
 void Domain::SetupCommBuffers(Int_t edgeNodes)
 {
-  (void)edgeNodes;
+  // Flags used by SetupBoundaryConditions(): 0 => boundary (no neighbor), 1 => has neighbor
+  m_rowMin   = (m_rowLoc   == 0      ) ? 0 : 1;
+  m_rowMax   = (m_rowLoc   == m_tp-1 ) ? 0 : 1;
+  m_colMin   = (m_colLoc   == 0      ) ? 0 : 1;
+  m_colMax   = (m_colLoc   == m_tp-1 ) ? 0 : 1;
+  m_planeMin = (m_planeLoc == 0      ) ? 0 : 1;
+  m_planeMax = (m_planeLoc == m_tp-1 ) ? 0 : 1;
+
+  const Index_t planeNodes = Index_t(edgeNodes) * Index_t(edgeNodes);
+
+  // Allocate symmetry-plane node lists only on the global min faces
+  // (and reset to empty views otherwise so symmXempty() works correctly)
+  if (m_colLoc == 0)   m_symmX = Kokkos::View<Index_t*>("symmX", planeNodes);
+  else                 m_symmX = Kokkos::View<Index_t*>();
+
+  if (m_rowLoc == 0)   m_symmY = Kokkos::View<Index_t*>("symmY", planeNodes);
+  else                 m_symmY = Kokkos::View<Index_t*>();
+
+  if (m_planeLoc == 0) m_symmZ = Kokkos::View<Index_t*>("symmZ", planeNodes);
+  else                 m_symmZ = Kokkos::View<Index_t*>();
+
+#ifdef USE_MPI
+  // If MPI buffers are still needed elsewhere, restore official allocations here.
+#endif
 }
 
 // Optional: keep symbol available; can be implemented later if needed.
@@ -403,14 +442,21 @@ void Domain::CreateRegionIndexSets(Int_t nr, Int_t balance)
   // 情况 1：只存在一个区域
   // ------------------------------
   if (nr == 1) {
-    for (Index_t i = 0; i < numElem(); ++i)
-      h_regNumList(i) = 1;   // 区域编号 = 1
+    const Index_t ne = numElem();
 
-    h_regElemSize(0) = numElem();
+    m_regNumList = Kokkos::View<Index_t*>("regNumList", ne);
+    Kokkos::deep_copy(m_regNumList, Index_t(0));
 
-    // 同步到 device
-    Kokkos::deep_copy(m_regElemSize, h_regElemSize);
-    Kokkos::deep_copy(m_regNumList,  h_regNumList);
+    m_regElemSize = Kokkos::View<Index_t*>("regElemSize", 1);
+    auto regSize_h = Kokkos::create_mirror_view(m_regElemSize);
+    regSize_h(0) = ne;
+    Kokkos::deep_copy(m_regElemSize, regSize_h);
+
+    m_regElemlist = Kokkos::View<Index_t**>("regElemlist", 1, ne);
+    auto regList_h = Kokkos::create_mirror_view(m_regElemlist);
+    for (Index_t i = 0; i < ne; ++i) regList_h(0, i) = i;
+    Kokkos::deep_copy(m_regElemlist, regList_h);
+
     return;
   }
 
@@ -502,49 +548,49 @@ void Domain::CreateRegionIndexSets(Int_t nr, Int_t balance)
 
 void Domain::SetupSymmetryPlanes(Int_t edgeNodes)
 {
-  // 中文：设置对称平面的节点索引列表
-  // 法语：Initialiser les listes d’indices de nœuds pour les plans de symétrie
+  const Index_t planeNodes = Index_t(edgeNodes) * Index_t(edgeNodes);
 
-  Index_t nidx = 0;
+  // Node index mapping: n(i,j,k) = i + edgeNodes*(j + edgeNodes*k)
+  // We flatten (a,b) in [0..edgeNodes-1]^2 as nidx = a*edgeNodes + b.
+  // Then:
+  //  X=0 plane: (i=0, j=a, k=b)
+  //  Y=0 plane: (i=a, j=0, k=b)
+  //  Z=0 plane: (i=a, j=b, k=0)
 
-  // 中文：三重循环生成所有节点的平面位置
-  // 法语：Boucles imbriquées générant la position plane/ligne/colonne de chaque nœud
-  for (Index_t i = 0; i < edgeNodes; ++i) {
-
-    Index_t planeInc = i * edgeNodes * edgeNodes;   // 中文：平面偏移量；法语：Décalage du plan
-    Index_t rowInc   = i * edgeNodes;               // 中文：行偏移量；法语：Décalage de ligne
-
-    for (Index_t j = 0; j < edgeNodes; ++j) {
-
-      // --------------------
-      // Z- 对称平面
-      // --------------------
-      if (m_planeLoc == 0) {
-        // 中文：Z 最小方向的对称面 → 记录该节点索引
-        // 法语：Plan de symétrie Z-min → enregistrer l’indice du nœud
-        m_symmZ(nidx) = rowInc + j;
+  if (!symmXempty()) {
+    if (Index_t(m_symmX.extent(0)) != planeNodes) m_symmX = Kokkos::View<Index_t*>("symmX", planeNodes);
+    auto hx = Kokkos::create_mirror_view(m_symmX);
+    for (Index_t a = 0; a < edgeNodes; ++a) {
+      for (Index_t b = 0; b < edgeNodes; ++b) {
+        const Index_t nidx = a * edgeNodes + b;
+        hx(nidx) = Index_t(0) + Index_t(edgeNodes) * (a + Index_t(edgeNodes) * b);
       }
-
-      // --------------------
-      // Y- 对称平面
-      // --------------------
-      if (m_rowLoc == 0) {
-        // 中文：Y 最小方向的对称面
-        // 法语：Plan de symétrie Y-min
-        m_symmY(nidx) = planeInc + j;
-      }
-
-      // --------------------
-      // X- 对称平面
-      // --------------------
-      if (m_colLoc == 0) {
-        // 中文：X 最小方向的对称面
-        // 法语：Plan de symétrie X-min
-        m_symmX(nidx) = planeInc + j * edgeNodes;
-      }
-
-      ++nidx;
     }
+    Kokkos::deep_copy(m_symmX, hx);
+  }
+
+  if (!symmYempty()) {
+    if (Index_t(m_symmY.extent(0)) != planeNodes) m_symmY = Kokkos::View<Index_t*>("symmY", planeNodes);
+    auto hy = Kokkos::create_mirror_view(m_symmY);
+    for (Index_t a = 0; a < edgeNodes; ++a) {
+      for (Index_t b = 0; b < edgeNodes; ++b) {
+        const Index_t nidx = a * edgeNodes + b;
+        hy(nidx) = a + Index_t(edgeNodes) * (Index_t(0) + Index_t(edgeNodes) * b);
+      }
+    }
+    Kokkos::deep_copy(m_symmY, hy);
+  }
+
+  if (!symmZempty()) {
+    if (Index_t(m_symmZ.extent(0)) != planeNodes) m_symmZ = Kokkos::View<Index_t*>("symmZ", planeNodes);
+    auto hz = Kokkos::create_mirror_view(m_symmZ);
+    for (Index_t a = 0; a < edgeNodes; ++a) {
+      for (Index_t b = 0; b < edgeNodes; ++b) {
+        const Index_t nidx = a * edgeNodes + b;
+        hz(nidx) = a + Index_t(edgeNodes) * b;
+      }
+    }
+    Kokkos::deep_copy(m_symmZ, hz);
   }
 }
 

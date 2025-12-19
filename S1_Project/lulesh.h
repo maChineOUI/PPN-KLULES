@@ -548,12 +548,12 @@ Kokkos::View<Real_t*> z_view() const { return m_z; }
    KOKKOS_INLINE_FUNCTION
    Index_t* nodelist(Index_t elem)
    {
-      return &m_nodelist(8 * elem);
+      return m_nodelist.data() + 8 * elem;
    }
    KOKKOS_INLINE_FUNCTION
    const Index_t* nodelist(Index_t elem) const 
    {
-      return m_nodelist.data() + elem * this->numNode();
+      return m_nodelist.data() + 8 * elem;
    }
 
    // Connectivité entre éléments / 单元间邻接关系
