@@ -238,8 +238,70 @@ void Domain::SetupCommBuffers(Int_t edgeNodes)
 // Optional: keep symbol available; can be implemented later if needed.
 void Domain::SetupThreadSupportStructures()
 {
-  // no-op for now (serial)
+  // Build CSR-like adjacency:
+  //  - m_nodeElemStart(n) gives start offset in m_nodeElemCornerList for node n
+  //  - m_nodeElemCornerList stores "cornerId" (cornerId = elem*8 + localCorner)
+
+  const Index_t nn = numNode();
+  const Index_t ne = numElem();
+  const Index_t nc = ne * Index_t(8);
+
+  if (nn <= 0 || ne <= 0) {
+    m_nodeElemStart      = Kokkos::View<Index_t*>();
+    m_nodeElemCornerList = Kokkos::View<Index_t*>();
+    return;
+  }
+
+  m_nodeElemStart      = Kokkos::View<Index_t*>("nodeElemStart", nn + 1);
+  m_nodeElemCornerList = Kokkos::View<Index_t*>("nodeElemCornerList", nc);
+
+  // Temporary per-node counters:
+  //  - First pass: degree counts per node
+  //  - Second pass: reused as per-node write cursor
+  Kokkos::View<Index_t*> nodeElemCount("nodeElemCount_tmp", nn);
+  Kokkos::deep_copy(nodeElemCount, Index_t(0));
+
+  auto nodelist = m_nodelist;
+  auto count    = nodeElemCount;
+  auto start    = m_nodeElemStart;
+  auto list     = m_nodeElemCornerList;
+
+  using ExecSpace = Kokkos::DefaultExecutionSpace;
+
+  // Pass 1: count incident element corners per node
+  Kokkos::parallel_for(
+      "LULESH_CountNodeElemCorners",
+      Kokkos::RangePolicy<ExecSpace>(0, nc),
+      KOKKOS_LAMBDA(const Index_t cornerId) {
+        const Index_t node = nodelist(cornerId);
+        Kokkos::atomic_fetch_add(&count(node), Index_t(1));
+      });
+
+  // Exclusive prefix-sum: start(i) = sum_{k<i} count(k)
+  Kokkos::parallel_scan(
+      "LULESH_PrefixSumNodeElemStart",
+      Kokkos::RangePolicy<ExecSpace>(0, nn + 1),
+      KOKKOS_LAMBDA(const Index_t i, Index_t& upd, const bool final) {
+        const Index_t val = (i < nn) ? count(i) : Index_t(0);
+        if (final) start(i) = upd;
+        upd += val;
+      });
+
+  // Pass 2: fill corner list using atomic per-node cursor
+  Kokkos::deep_copy(count, Index_t(0));
+
+  Kokkos::parallel_for(
+      "LULESH_FillNodeElemCornerList",
+      Kokkos::RangePolicy<ExecSpace>(0, nc),
+      KOKKOS_LAMBDA(const Index_t cornerId) {
+        const Index_t node = nodelist(cornerId);
+        const Index_t off  = Kokkos::atomic_fetch_add(&count(node), Index_t(1));
+        list(start(node) + off) = cornerId;
+      });
+
+  Kokkos::fence();
 }
+
 
 /*
  * BuildMesh — build regular mesh coordinates + element connectivity.
