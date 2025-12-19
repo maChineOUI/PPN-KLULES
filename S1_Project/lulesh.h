@@ -157,6 +157,7 @@ public:
 KOKKOS_INLINE_FUNCTION
 auto vdov_view() const { return m_vdov; }
 
+KOKKOS_INLINE_FUNCTION
 auto v_view() const { return m_v; }
 // Volume de référence
 KOKKOS_INLINE_FUNCTION
@@ -188,31 +189,50 @@ KOKKOS_INLINE_FUNCTION
 auto delv_eta_view() const { return m_delv_eta; }
 
 // -------- Region / topology --------
+KOKKOS_INLINE_FUNCTION
 Kokkos::View<Index_t**> regElemlist_view() const { return m_regElemlist; }
+KOKKOS_INLINE_FUNCTION
 Kokkos::View<Int_t*>    elemBC_view()      const { return m_elemBC; }
 
 // -------- Neighbors --------
+KOKKOS_INLINE_FUNCTION
 Kokkos::View<Index_t*> lxim_view()   const { return m_lxim; }
+KOKKOS_INLINE_FUNCTION
 Kokkos::View<Index_t*> lxip_view()   const { return m_lxip; }
+KOKKOS_INLINE_FUNCTION
 Kokkos::View<Index_t*> letam_view()  const { return m_letam; }
+KOKKOS_INLINE_FUNCTION
 Kokkos::View<Index_t*> letap_view()  const { return m_letap; }
+KOKKOS_INLINE_FUNCTION
 Kokkos::View<Index_t*> lzetam_view() const { return m_lzetam; }
+KOKKOS_INLINE_FUNCTION
 Kokkos::View<Index_t*> lzetap_view() const { return m_lzetap; }
 
 
+KOKKOS_INLINE_FUNCTION
 Kokkos::View<Real_t*> ql_view() const { return m_ql; }
+KOKKOS_INLINE_FUNCTION
 Kokkos::View<Real_t*> qq_view() const { return m_qq; }
 
 
+KOKKOS_INLINE_FUNCTION
 Kokkos::View<Real_t*> e_view()    const { return m_e; }
+KOKKOS_INLINE_FUNCTION
 Kokkos::View<Real_t*> delv_view() const { return m_delv; }
+KOKKOS_INLINE_FUNCTION
 Kokkos::View<Real_t*> p_view()    const { return m_p; }
+KOKKOS_INLINE_FUNCTION
 Kokkos::View<Real_t*> q_view()    const { return m_q; }
 
+KOKKOS_INLINE_FUNCTION
 Kokkos::View<Real_t*> vnew_view()   const { return m_vnew; }
+KOKKOS_INLINE_FUNCTION
 Kokkos::View<Real_t*> arealg_view() const { return m_arealg; }
+KOKKOS_INLINE_FUNCTION
 Kokkos::View<Real_t*> dxx_view()    const { return m_dxx; }
+KOKKOS_INLINE_FUNCTION
 Kokkos::View<Real_t*> dyy_view()    const { return m_dyy; }
+KOKKOS_INLINE_FUNCTION
 Kokkos::View<Real_t*> dzz_view()    const { return m_dzz; }
 
 
@@ -537,14 +557,24 @@ Kokkos::View<Real_t*> z_view() const { return m_z; }
    KOKKOS_INLINE_FUNCTION
    Index_t* regNumListPtr() { return m_regNumList.data(); }
 
-   // Liste des éléments par région / 区域内单元列表（二位 View）
+// Alias officiel : regNumList() / 官方旧接口别名
+KOKKOS_INLINE_FUNCTION
+Index_t* regNumList() { return regNumListPtr(); }
+// Liste des éléments par région / 区域内单元列表（二位 View）
    KOKKOS_INLINE_FUNCTION
-   Index_t& regElemlist(Index_t r, Index_t idx)
+   Index_t& regElemlist(Int_t r, Index_t idx)
    {
       return m_regElemlist(r, idx);
    }
 
-   // Connectivité élément-8-nœuds / 单元的 8 节点连接
+// Official LULESH-compatible: pointer to region element list head
+// NOTE: assumes contiguous storage along idx dimension.
+KOKKOS_INLINE_FUNCTION
+Index_t* regElemlist(Int_t r)
+{
+   return &m_regElemlist((Index_t)r, 0);
+}
+// Connectivité élément-8-nœuds / 单元的 8 节点连接
    KOKKOS_INLINE_FUNCTION
    Index_t* nodelist(Index_t elem)
    {
@@ -784,7 +814,9 @@ Real_t elemMass(Index_t idx) const { return m_elemMass(idx); }
    KOKKOS_INLINE_FUNCTION Int_t&  cost() { return m_cost; }
 
    KOKKOS_INLINE_FUNCTION Index_t& numElem() { return m_numElem; }
-   KOKKOS_INLINE_FUNCTION Index_t numNode() const { return m_numNode; }
+   // --- Official LULESH-compatible accessor (allows: domain.numNode() = ...)
+KOKKOS_INLINE_FUNCTION Index_t& numNode() { return m_numNode; }
+KOKKOS_INLINE_FUNCTION Index_t  numNode() const { return m_numNode; }
 
    KOKKOS_INLINE_FUNCTION Index_t& maxPlaneSize() { return m_maxPlaneSize; }
    KOKKOS_INLINE_FUNCTION Index_t& maxEdgeSize() { return m_maxEdgeSize; }

@@ -15,3 +15,7 @@ Makefile
 .DS_Store
 *.dSYM
 
+
+# backups
+backups/
+*.bak*
