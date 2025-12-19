@@ -2573,8 +2573,8 @@ void CalcEnergyForElems(Real_t* p_new, Real_t* e_new, Real_t* q_new,
                   ( pbvc[i] * e_new[i]
                   + vhalf * vhalf * bvc[i] * pHalfStep[i] ) / rho0;
 
-            if (ssc <= Real_t(1.111111e-37)) {
-                ssc = Real_t(3.333333e-19);
+            if (ssc <= Real_t(1.111111e-36)) {
+                ssc = Real_t(3.333333e-18);
             } else {
                 ssc = SQRT(ssc);
             }
@@ -2670,8 +2670,8 @@ void CalcEnergyForElems(Real_t* p_new, Real_t* e_new, Real_t* q_new,
                 ( pbvc[i] * e_new[i]
                 + vnewc[ielem] * vnewc[ielem] * bvc[i] * p_new[i] ) / rho0;
 
-            if (ssc <= Real_t(1.111111e-37)) {
-                ssc = Real_t(3.333333e-19);
+            if (ssc <= Real_t(1.111111e-36)) {
+                ssc = Real_t(3.333333e-18);
             }
             else {
                 ssc = SQRT(ssc);
@@ -2729,8 +2729,8 @@ void CalcEnergyForElems(Real_t* p_new, Real_t* e_new, Real_t* q_new,
                 ( pbvc[i] * e_new[i]
                 + vnewc[ielem] * vnewc[ielem] * bvc[i] * p_new[i] ) / rho0;
 
-            if (ssc <= Real_t(1.111111e-37)) {
-                ssc = Real_t(3.333333e-19);
+            if (ssc <= Real_t(1.111111e-36)) {
+                ssc = Real_t(3.333333e-18);
             }
             else {
                 ssc = SQRT(ssc);
@@ -2760,6 +2760,55 @@ void CalcEnergyForElems(Real_t* p_new, Real_t* e_new, Real_t* q_new,
    为指定区域计算状态方程（EOS）。
    （GPU-ready 版本：所有临时数组均使用 Kokkos::View）
 */
+
+
+// ------------------------------------------------------------
+// Sound speed computation (Kokkos5-friendly)
+// - regElemList: element ids (device pointer OK; we pass devElemList.data())
+// - enewc/pnewc/pbvc/bvc: region-local arrays indexed by i in [0,numElemReg)
+// - vnewc: global array indexed by element id
+// ------------------------------------------------------------
+void CalcSoundSpeedForElems(
+    Domain& domain,
+    const Real_t* vnewc,
+    const Real_t rho0,
+    const Real_t* enewc,
+    const Real_t* pnewc,
+    const Real_t* pbvc,
+    const Real_t* bvc,
+    const Real_t ss4o3,           // kept for signature compatibility
+    const Index_t numElemReg,
+    const Index_t* regElemList
+)
+{
+    (void)ss4o3;
+    if (numElemReg <= 0) return;
+
+    auto ss = domain.ss_view(); // View<Real_t*>
+
+    Kokkos::parallel_for(
+        "CalcSoundSpeedForElems",
+        Kokkos::RangePolicy<>(0, numElemReg),
+        KOKKOS_LAMBDA(const Index_t i)
+        {
+            const Index_t ielem = regElemList[i];
+            const Real_t  v     = vnewc[ielem];
+
+            // Reference LULESH formula:
+            // ssc = (pbvc*e + v^2*bvc*p) / rho0
+            Real_t ssc = (pbvc[i] * enewc[i] + (v * v) * bvc[i] * pnewc[i]) / rho0;
+
+            // Clamp like reference implementation
+            if (ssc <= Real_t(1.111111e-36)) {
+                ssc = Real_t(3.333333e-18);
+            } else {
+                ssc = SQRT(ssc);
+            }
+
+            ss(ielem) = ssc;
+        }
+    );
+}
 
 void EvalEOSForElems(
     Domain& domain,
@@ -2958,14 +3007,14 @@ auto q = domain.q_view();
        STEP 7:
        计算 Sound Speed（调用已移植的 GPU-ready 函数）
     */
-   // CalcSoundSpeedForElems(
-   //     domain,
-   //     vnewc, rho0,
-   //     e_new.data(), p_new.data(),
-   //     pbvc.data(), bvc.data(),
-   //     ss4o3,
-   //     numElemReg, devElemList.data()
-   // );
+   CalcSoundSpeedForElems(
+       domain,
+       vnewc, rho0,
+       e_new.data(), p_new.data(),
+       pbvc.data(), bvc.data(),
+       ss4o3,
+       numElemReg, devElemList.data()
+   );
 }
 
 /*
@@ -3198,149 +3247,112 @@ void LagrangeElements(Domain& domain, Index_t numElem)
    Calcule la contrainte de Courant pour un ensemble d’éléments.
    计算 Courant 时间步约束（用于稳定性限制）。
 */
-KOKKOS_INLINE_FUNCTION
-KOKKOS_INLINE_FUNCTION
 void CalcCourantConstraintForElems(
     Domain& domain,
     Index_t length,
-    Index_t* regElemlist_host, /* host 上的单元列表 */
+    Kokkos::View<const Index_t*> regElemlist, /* region element list (device-accessible) */
     Real_t qqc2,
     Real_t& dtcourant_out)
 {
-    if (length == 0) return;
 
-    // 初始化为很大的值
-    dtcourant_out = Real_t(1.0e+20);
+  // IMPORTANT: treat incoming parameter as qqc, compute qqc2 exactly as reference:
+  const Real_t qqc_in = (Real_t)(qqc2);
+  const Real_t qqc2_local = Real_t(64.0) * qqc_in * qqc_in;
 
-    // host -> device/exec-space view
-    Kokkos::View<Index_t*> regList_c("regElemlist_courant", length);
-    Kokkos::parallel_for(
-        "CopyRegElemListCourant",
-        Kokkos::RangePolicy<>(0, length),
-        KOKKOS_LAMBDA(const Index_t i) {
-            regList_c(i) = regElemlist_host[i];
-        });
+  Real_t dtcourant_reg = Real_t(1.0e20);
 
-    Kokkos::parallel_reduce(
-        "CalcCourantConstraintForElems",
-        Kokkos::RangePolicy<>(0, length),
-        KOKKOS_LAMBDA(const Index_t i, Real_t& localMin)
-        {
-            const Index_t indx = regList_c(i);
+  Kokkos::parallel_reduce(
+    "CalcCourantConstraintForElems",
+    Kokkos::RangePolicy<Kokkos::DefaultExecutionSpace>(0, length),
+    KOKKOS_LAMBDA(const Index_t i, Real_t& lmin) {
+      const Index_t indx = regElemlist(i);
 
-            const Real_t ss     = domain.ss(indx);
-            const Real_t arealg = domain.arealg(indx);
-            const Real_t vdov   = domain.vdov(indx);
+      const Real_t vdov = domain.vdov(indx);
+      if (vdov != Real_t(0.0)) {
+        const Real_t arealg = domain.arealg(indx);
+        const Real_t ss     = domain.ss(indx);
 
-            Real_t dtf = ss * ss;
-            if (vdov < Real_t(0.0)) {
-                dtf += qqc2 * arealg * arealg * vdov * vdov;
-            }
+        Real_t dtf = ss * ss;
+        if (vdov < Real_t(0.0)) {
+          const Real_t a2 = arealg * arealg;
+          dtf += qqc2_local *  a2 * vdov * vdov;
+        }
+        dtf = arealg / Kokkos::sqrt(dtf);
+        if (dtf < lmin) lmin = dtf;
+      }
+    },
+    Kokkos::Min<Real_t>(dtcourant_reg)
+  );
 
-            dtf = SQRT(dtf);
-            dtf = arealg / dtf;
-
-            if (vdov != Real_t(0.0) && dtf < localMin) {
-                localMin = dtf;
-            }
-        },
-        Kokkos::Min<Real_t>(dtcourant_out)
-    );
+  dtcourant_out = dtcourant_reg;
 }
 
 /*
    Calcule la contrainte hydro-dynamique sur le pas de temps.
    计算流体力学时间步约束（基于体积变化率 vdov）。
 */
-KOKKOS_INLINE_FUNCTION
-KOKKOS_INLINE_FUNCTION
 void CalcHydroConstraintForElems(
     Domain& domain,
     Index_t length,
-    Index_t* regElemlist_host, /* host 上的单元列表 */
+    Kokkos::View<const Index_t*> regElemlist, /* region element list (device-accessible) */
     Real_t dvovmax,
     Real_t& dthydro_out)
 {
-    if (length == 0) return;
 
-    dthydro_out = Real_t(1.0e+20);
+  const Real_t dvovmax_in = (Real_t)(dvovmax);
 
-    Kokkos::View<Index_t*> regList_h("regList_h", length);
-    Kokkos::parallel_for(
-        "CopyRegElemListHydro",
-        Kokkos::RangePolicy<>(0, length),
-        KOKKOS_LAMBDA(const Index_t i) {
-            regList_h(i) = regElemlist_host[i];
-        });
+  Real_t dthydro_reg = Real_t(1.0e20);
 
-    Kokkos::parallel_reduce(
-        "CalcHydroConstraintForElems",
-        Kokkos::RangePolicy<>(0, length),
-        KOKKOS_LAMBDA(const Index_t i, Real_t& localMin)
-        {
-            const Index_t indx = regList_h(i);
-            const Real_t vdov  = domain.vdov(indx);
+  Kokkos::parallel_reduce(
+    "CalcHydroConstraintForElems",
+    Kokkos::RangePolicy<Kokkos::DefaultExecutionSpace>(0, length),
+    KOKKOS_LAMBDA(const Index_t i, Real_t& lmin) {
+      const Index_t indx = regElemlist(i);
 
-            if (vdov != Real_t(0.0)) {
-                const Real_t dtdvov = dvovmax / (FABS(vdov) + Real_t(1.e-20));
-                if (dtdvov < localMin) localMin = dtdvov;
-            }
-        },
-        Kokkos::Min<Real_t>(dthydro_out)
-    );
+      const Real_t vdov = domain.vdov(indx);
+      if (vdov != Real_t(0.0)) {
+        const Real_t denom  = Kokkos::fabs(vdov) + Real_t(1.0e-20);
+        const Real_t dtdvov = dvovmax_in / denom;
+        if (dtdvov < lmin) lmin = dtdvov;
+      }
+    },
+    Kokkos::Min<Real_t>(dthydro_reg)
+  );
+
+  dthydro_out = dthydro_reg;
 }
 
 /*
    Évalue les contraintes de temps (Courant et Hydro) pour tous les éléments.
    对全部区域（region）的单元计算时间步约束（Courant 与 Hydro）。
 */
-KOKKOS_INLINE_FUNCTION
 void CalcTimeConstraintsForElems(Domain& domain)
 {
-    /* 
-       Initialiser avec des valeurs très grandes.
-       初始化为非常大的数。
-    */
-    domain.dtcourant() = Real_t(1.0e20);
-    domain.dthydro()   = Real_t(1.0e20);
 
-    const Index_t numReg = domain.numReg();
+  // Global init (do NOT overwrite per region)
+  domain.dtcourant() = Real_t(1.0e20);
+  domain.dthydro()   = Real_t(1.0e20);
 
-    /* ------------------------------------------------------------
-       Boucle séquentielle sur les régions（区域级别是顺序处理的）
-       注意：region 数量通常较小（~10），不需要并行
-       ------------------------------------------------------------ */
-    for (Index_t r = 0; r < numReg; ++r) {
+  const Real_t qqc     = domain.qqc();
+  const Real_t dvovmax = domain.dvovmax();
 
-        Index_t length = domain.regElemSize(r);
-        if (length == 0) continue;
+  const Index_t numReg = domain.numReg();
+  auto regElemlist2d = domain.regElemlist_view();
+  for (Index_t r = 0; r < numReg; ++r) {
+    const Index_t length = domain.regElemSize(r);
+    if (length <= 0) continue;
 
-        Index_t* regList = &domain.regElemlist(r, Index_t(0));
+    auto regElemlist = Kokkos::subview(regElemlist2d, r, Kokkos::make_pair((Index_t)0, length));
 
-        /* 
-           1) Contrainte de Courant
-              Courant 时间步约束
-        */
-        CalcCourantConstraintForElems(
-            domain,
-            length,
-            regList,
-            domain.qqc(),
-            domain.dtcourant()
-        );
+    Real_t dtc_r = Real_t(1.0e20);
+    Real_t dth_r = Real_t(1.0e20);
 
-        /* 
-           2) Contrainte Hydro
-              流体力学时间步约束
-        */
-        CalcHydroConstraintForElems(
-            domain,
-            length,
-            regList,
-            domain.dvovmax(),
-            domain.dthydro()
-        );
-    }
+    CalcCourantConstraintForElems(domain, length, regElemlist, qqc, dtc_r);
+    CalcHydroConstraintForElems  (domain, length, regElemlist, dvovmax, dth_r);
+
+    if (dtc_r < domain.dtcourant()) domain.dtcourant() = dtc_r;
+    if (dth_r < domain.dthydro())   domain.dthydro()   = dth_r;
+  }
 }
 
 /*
