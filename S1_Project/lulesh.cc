@@ -1703,7 +1703,13 @@ auto dxx    = domain.dxx_view();
 auto dyy    = domain.dyy_view();
 auto dzz    = domain.dzz_view();
 
-    Kokkos::parallel_for(
+auto nodelist_flat = domain.nodelist_view();  // [kin-e0] debug: flat nodelist view
+
+
+    const int cyc_host = (int)domain.cycle();  // [kin-e0] host snapshot
+const Real_t dt_host = deltaTime;          // [kin-e0] host snapshot
+
+Kokkos::parallel_for(
         "CalcKinematicsForElems",
         Kokkos::RangePolicy<>(0, numElem),
         KOKKOS_LAMBDA(const Index_t k)
@@ -1730,7 +1736,14 @@ auto dzz    = domain.dzz_view();
         CollectDomainNodesToElemNodes(domain, elemToNode,
                                       x_local, y_local, z_local);
 
-        /* ---------------------------------------------------------
+        
+        /* >>> DEBUG_KIN_ELEM0_BEGIN: pre-half-step scale capture >>> */
+        const Real_t dx01_pre = x_local[1] - x_local[0];
+        const Real_t dy03_pre = y_local[3] - y_local[0];
+        const Real_t dz04_pre = z_local[4] - z_local[0];
+        /* <<< DEBUG_KIN_ELEM0_END >>> */
+
+/* ---------------------------------------------------------
            2. Calcul du volume de l’élément
            2. 计算单元体积
         --------------------------------------------------------- */
@@ -1782,6 +1795,43 @@ auto dzz    = domain.dzz_view();
         --------------------------------------------------------- */
         CalcElemVelocityGradient(xd_local, yd_local, zd_local,
                                  B, detJ, D);
+        /* >>> DEBUG_KIN_ELEM0_BEGIN: elem0 print >>> */
+        if (k == 0) {
+            const int cyc = cyc_host;
+            if (cyc <= 6) {
+                // safe nodelist via flat view (used elsewhere in your code)
+                const Index_t n0 = nodelist_flat(8*k + 0);
+                const Index_t n1 = nodelist_flat(8*k + 1);
+                const Index_t n2 = nodelist_flat(8*k + 2);
+                const Index_t n3 = nodelist_flat(8*k + 3);
+                const Index_t n4 = nodelist_flat(8*k + 4);
+                const Index_t n5 = nodelist_flat(8*k + 5);
+                const Index_t n6 = nodelist_flat(8*k + 6);
+                const Index_t n7 = nodelist_flat(8*k + 7);
+
+                const Real_t Dxx = D[0], Dyy = D[1], Dzz = D[2];
+                const Real_t vdov0 = Dxx + Dyy + Dzz;
+
+                std::cout
+                  << "[kin-e0] cycle=" << cyc
+                  << " dt=" << double(dt_host)
+                  << " vol0(CalcElemVolume)=" << double(volume)
+                  << " detJ_like(ShapeDeriv)=" << double(detJ)
+                  << " dx01_pre=" << double(dx01_pre)
+                  << " dy03_pre=" << double(dy03_pre)
+                  << " dz04_pre=" << double(dz04_pre)
+                  << " Dxx=" << double(Dxx)
+                  << " Dyy=" << double(Dyy)
+                  << " Dzz=" << double(Dzz)
+                  << " vdov=" << double(vdov0)
+                  << " n0123=" << n0 << "," << n1 << "," << n2 << "," << n3
+                  << " n4567=" << n4 << "," << n5 << "," << n6 << "," << n7
+                  << std::endl;
+            }
+        }
+        /* <<< DEBUG_KIN_ELEM0_END >>> */
+
+
 
         /* ---------------------------------------------------------
            8. Stocker les quantités dans le domain
@@ -3320,6 +3370,59 @@ void CalcHydroConstraintForElems(
   );
 
   dthydro_out = dthydro_reg;
+
+  /* DBG_BEGIN_HYDRO_MINLOC */
+  // [hydro-minloc] Debug: find element that sets dthydro (min dtdvov) via MinLoc.
+  // Guard against invalid loc to avoid segfault.
+  if ((domain.cycle() < 5) || (domain.cycle() % 1000 == 0)) {
+    using ExecSpace = Kokkos::DefaultExecutionSpace;
+    using MinLocT   = Kokkos::MinLoc<Real_t, Index_t>;
+    typename MinLocT::value_type minloc;
+
+    Kokkos::parallel_reduce(
+      "DbgHydroMinLoc",
+      Kokkos::RangePolicy<ExecSpace>(0, length),
+      KOKKOS_LAMBDA(const Index_t i, typename MinLocT::value_type& upd) {
+        const Index_t indx = regElemlist(i);
+        const Real_t  vdov = domain.vdov(indx);
+        if (vdov != Real_t(0.0)) {
+          const Real_t denom  = Kokkos::fabs(vdov) + Real_t(1.0e-20);
+          const Real_t dtdvov = dvovmax_in / denom;
+          if (dtdvov < upd.val) {
+            upd.val = dtdvov;
+            upd.loc = indx;
+          }
+        }
+      },
+      MinLocT(minloc)
+    );
+
+    const Index_t nElem  = domain.numElem();
+    const Index_t argmin = minloc.loc;
+
+    if (argmin >= Index_t(0) && argmin < nElem) {
+      const Real_t vdov_m = domain.vdov(argmin);
+      std::cout
+        << "[hydro-minloc] cycle=" << domain.cycle()
+        << " dthydro_reg=" << double(dthydro_reg)
+        << " min_dtdvov=" << double(minloc.val)
+        << " argmin_elem=" << long(argmin)
+        << " vdov(argmin)=" << double(vdov_m)
+        << " dvovmax=" << double(dvovmax_in)
+        << "\n";
+    } else {
+      std::cout
+        << "[hydro-minloc] cycle=" << domain.cycle()
+        << " dthydro_reg=" << double(dthydro_reg)
+        << " min_dtdvov=" << double(minloc.val)
+        << " argmin_elem=" << long(argmin)
+        << " (INVALID loc) nElem=" << long(nElem)
+        << " dvovmax=" << double(dvovmax_in)
+        << "\n";
+    }
+  }
+  /* DBG_END_HYDRO_MINLOC */
+
 }
 
 /*
@@ -3344,7 +3447,42 @@ void CalcTimeConstraintsForElems(Domain& domain)
 
     auto regElemlist = Kokkos::subview(regElemlist2d, r, Kokkos::make_pair((Index_t)0, length));
 
-    Real_t dtc_r = Real_t(1.0e20);
+    
+    /* DBG_BEGIN_REGLIST_CHECK */
+    // [reglist-check] Verify regElemlist indices are in [0, numElem)
+    // Print only early cycles and then every 1000 cycles.
+    if ((domain.cycle() < 5) || (domain.cycle() % 1000 == 0)) {
+      const Index_t nElem = domain.numElem();
+      Index_t minIdx = nElem;
+      Index_t maxIdx = Index_t(-1);
+      Index_t oob    = 0;
+
+      Kokkos::parallel_reduce(
+        "DbgRegElemMinMaxOOB",
+        Kokkos::RangePolicy<Kokkos::DefaultExecutionSpace>(0, length),
+        KOKKOS_LAMBDA(const Index_t i, Index_t& lmin, Index_t& lmax, Index_t& loob) {
+          const Index_t idx = regElemlist(i);
+          if (idx < lmin) lmin = idx;
+          if (idx > lmax) lmax = idx;
+          if (idx < Index_t(0) || idx >= nElem) loob += 1;
+        },
+        Kokkos::Min<Index_t>(minIdx),
+        Kokkos::Max<Index_t>(maxIdx),
+        Kokkos::Sum<Index_t>(oob)
+      );
+
+      std::cout
+        << "[reglist-check] cycle=" << domain.cycle()
+        << " r=" << long(r)
+        << " length=" << long(length)
+        << " numElem=" << long(nElem)
+        << " minIdx=" << long(minIdx)
+        << " maxIdx=" << long(maxIdx)
+        << " oob=" << long(oob)
+        << "\n";
+    }
+    /* DBG_END_REGLIST_CHECK */
+Real_t dtc_r = Real_t(1.0e20);
     Real_t dth_r = Real_t(1.0e20);
 
     CalcCourantConstraintForElems(domain, length, regElemlist, qqc, dtc_r);
