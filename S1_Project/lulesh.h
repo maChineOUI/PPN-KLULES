@@ -684,6 +684,11 @@ Real_t& ss(Index_t idx) { return m_ss(idx); }
 KOKKOS_INLINE_FUNCTION
 Real_t ss(Index_t idx) const { return m_ss(idx); }
 
+// Kokkos View accessor for sound speed (Kokkos5-friendly)
+KOKKOS_INLINE_FUNCTION
+Kokkos::View<Real_t*> ss_view() const { return m_ss; }
+
+
 
 // Masse élémentaire / 单元质量
 KOKKOS_INLINE_FUNCTION
