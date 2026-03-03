@@ -1,5 +1,4 @@
 #include "lulesh-viscosity.h"
-#include "lulesh-comm.h"
 
 #if _OPENMP
 # include <omp.h>
@@ -103,7 +102,7 @@ void CalcMonotonicQGradientsForElems(Domain& domain, Real_t vnew[])
       ay = dzi*dxj - dxi*dzj ;
       az = dxi*dyj - dyi*dxj ;
 
-      domain.delx_zeta(i) = vol / SQRT(ax*ax + ay*ay + az*az + ptiny) ;
+      domain.delx_zeta(i) = vol / std::sqrt(ax*ax + ay*ay + az*az + ptiny) ;
 
       ax *= norm ;
       ay *= norm ;
@@ -121,7 +120,7 @@ void CalcMonotonicQGradientsForElems(Domain& domain, Real_t vnew[])
       ay = dzj*dxk - dxj*dzk ;
       az = dxj*dyk - dyj*dxk ;
 
-      domain.delx_xi(i) = vol / SQRT(ax*ax + ay*ay + az*az + ptiny) ;
+      domain.delx_xi(i) = vol / std::sqrt(ax*ax + ay*ay + az*az + ptiny) ;
 
       ax *= norm ;
       ay *= norm ;
@@ -139,7 +138,7 @@ void CalcMonotonicQGradientsForElems(Domain& domain, Real_t vnew[])
       ay = dzk*dxi - dxk*dzi ;
       az = dxk*dyi - dyk*dxi ;
 
-      domain.delx_eta(i) = vol / SQRT(ax*ax + ay*ay + az*az + ptiny) ;
+      domain.delx_eta(i) = vol / std::sqrt(ax*ax + ay*ay + az*az + ptiny) ;
 
       ax *= norm ;
       ay *= norm ;
@@ -356,31 +355,8 @@ void CalcQForElems(Domain& domain, Real_t vnew[])
 
       domain.AllocateGradients(numElem, allElem);
 
-#if USE_MPI
-      CommRecv(domain, MSG_MONOQ, 3,
-               domain.sizeX(), domain.sizeY(), domain.sizeZ(),
-               true, true) ;
-#endif
-
       /* Calculate velocity gradients */
       CalcMonotonicQGradientsForElems(domain, vnew);
-
-#if USE_MPI
-      Domain_member fieldData[3] ;
-
-      /* Transfer veloctiy gradients in the first order elements */
-      /* problem->commElements->Transfer(CommElements::monoQ) ; */
-
-      fieldData[0] = &Domain::delv_xi ;
-      fieldData[1] = &Domain::delv_eta ;
-      fieldData[2] = &Domain::delv_zeta ;
-
-      CommSend(domain, MSG_MONOQ, 3, fieldData,
-               domain.sizeX(), domain.sizeY(), domain.sizeZ(),
-               true, true) ;
-
-      CommMonoQ(domain) ;
-#endif
 
       CalcMonotonicQForElems(domain, vnew) ;
 
@@ -397,11 +373,7 @@ void CalcQForElems(Domain& domain, Real_t vnew[])
       }
 
       if(idx >= 0) {
-#if USE_MPI
-         MPI_Abort(MPI_COMM_WORLD, QStopError) ;
-#else
          exit(QStopError);
-#endif
       }
    }
 }

@@ -146,12 +146,12 @@ Additional BSD Notice
 
 #include <climits>
 #include <vector>
-#include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <ctype.h>
-#include <time.h>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <cctype>
+#include <ctime>
 #include <sys/time.h>
 #include <iostream>
 #include <unistd.h>
@@ -163,10 +163,8 @@ Additional BSD Notice
 #include "lulesh.h"
 #include "lulesh-timestep.h"
 #include "lulesh-integration.h"
-#include "lulesh-comm.h"
 #include "lulesh-init.h"
 #include "lulesh-util.h"
-#include "lulesh-viz.h"
 
 /******************************************/
 
@@ -177,16 +175,8 @@ int main(int argc, char *argv[])
    Int_t myRank ;
    struct cmdLineOpts opts;
 
-#if USE_MPI   
-   Domain_member fieldData ;
-
-   MPI_Init(&argc, &argv) ;
-   MPI_Comm_size(MPI_COMM_WORLD, &numRanks) ;
-   MPI_Comm_rank(MPI_COMM_WORLD, &myRank) ;
-#else
    numRanks = 1;
    myRank = 0;
-#endif   
 
    /* Set defaults that can be overridden by command line opts */
    opts.its = 9999999;
@@ -195,7 +185,6 @@ int main(int argc, char *argv[])
    opts.numFiles = (int)(numRanks+10)/9;
    opts.showProg = 0;
    opts.quiet = 0;
-   opts.viz = 0;
    opts.balance = 1;
    opts.cost = 1;
 
@@ -213,7 +202,6 @@ int main(int argc, char *argv[])
       printf("To run a more or less balanced region set, use -b <integer>.\n");
       printf("To change the relative costs of regions, use -c <integer>.\n");
       printf("To print out progress, use -p\n");
-      printf("To write an output file for VisIt, use -v\n");
       printf("See help (-h) for more options\n\n");
    }
 
@@ -226,29 +214,9 @@ int main(int argc, char *argv[])
                        side, opts.numReg, opts.balance, opts.cost) ;
 
 
-#if USE_MPI   
-   fieldData = &Domain::nodalMass ;
-
-   // Initial domain boundary communication 
-   CommRecv(*locDom, MSG_COMM_SBN, 1,
-            locDom->sizeX() + 1, locDom->sizeY() + 1, locDom->sizeZ() + 1,
-            true, false) ;
-   CommSend(*locDom, MSG_COMM_SBN, 1, &fieldData,
-            locDom->sizeX() + 1, locDom->sizeY() + 1, locDom->sizeZ() +  1,
-            true, false) ;
-   CommSBN(*locDom, 1, &fieldData) ;
-
-   // End initialization
-   MPI_Barrier(MPI_COMM_WORLD);
-#endif   
-   
    // BEGIN timestep to solution */
-#if USE_MPI   
-   double start = MPI_Wtime();
-#else
    timeval start;
-   gettimeofday(&start, NULL) ;
-#endif
+   gettimeofday(&start, nullptr) ;
 //debug to see region sizes
 //   for(Int_t i = 0; i < locDom->numReg(); i++)
 //      std::cout << "region" << i + 1<< "size" << locDom->regElemSize(i) <<std::endl;
@@ -265,33 +233,15 @@ int main(int argc, char *argv[])
 
    // Use reduced max elapsed time
    double elapsed_time;
-#if USE_MPI   
-   elapsed_time = MPI_Wtime() - start;
-#else
    timeval end;
-   gettimeofday(&end, NULL) ;
+   gettimeofday(&end, nullptr) ;
    elapsed_time = (double)(end.tv_sec - start.tv_sec) + ((double)(end.tv_usec - start.tv_usec))/1000000 ;
-#endif
    double elapsed_timeG;
-#if USE_MPI   
-   MPI_Reduce(&elapsed_time, &elapsed_timeG, 1, MPI_DOUBLE,
-              MPI_MAX, 0, MPI_COMM_WORLD);
-#else
    elapsed_timeG = elapsed_time;
-#endif
 
-   // Write out final viz file */
-   if (opts.viz) {
-      DumpToVisit(*locDom, opts.numFiles, myRank, numRanks) ;
-   }
-   
    if ((myRank == 0) && (opts.quiet == 0)) {
       VerifyAndWriteFinalOutput(elapsed_timeG, *locDom, opts.nx, numRanks);
    }
-
-#if USE_MPI
-   MPI_Finalize() ;
-#endif
 
    return 0 ;
 }

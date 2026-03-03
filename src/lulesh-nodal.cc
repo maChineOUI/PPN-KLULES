@@ -1,6 +1,5 @@
 #include "lulesh-nodal.h"
 #include "lulesh-stress.h"
-#include "lulesh-comm.h"
 
 #if _OPENMP
 # include <omp.h>
@@ -12,12 +11,6 @@ static inline void CalcForceForNodes(Domain& domain)
 {
   Index_t numNode = domain.numNode() ;
 
-#if USE_MPI
-  CommRecv(domain, MSG_COMM_SBN, 3,
-           domain.sizeX() + 1, domain.sizeY() + 1, domain.sizeZ() + 1,
-           true, false) ;
-#endif
-
 #pragma omp parallel for firstprivate(numNode)
   for (Index_t i=0; i<numNode; ++i) {
      domain.fx(i) = Real_t(0.0) ;
@@ -27,18 +20,6 @@ static inline void CalcForceForNodes(Domain& domain)
 
   /* Calcforce calls partial, force, hourq */
   CalcVolumeForceForElems(domain) ;
-
-#if USE_MPI
-  Domain_member fieldData[3] ;
-  fieldData[0] = &Domain::fx ;
-  fieldData[1] = &Domain::fy ;
-  fieldData[2] = &Domain::fz ;
-
-  CommSend(domain, MSG_COMM_SBN, 3, fieldData,
-           domain.sizeX() + 1, domain.sizeY() + 1, domain.sizeZ() +  1,
-           true, false) ;
-  CommSBN(domain, 3, fieldData) ;
-#endif
 }
 
 /******************************************/
@@ -98,15 +79,15 @@ void CalcVelocityForNodes(Domain &domain, const Real_t dt, const Real_t u_cut,
      Real_t xdtmp, ydtmp, zdtmp ;
 
      xdtmp = domain.xd(i) + domain.xdd(i) * dt ;
-     if( FABS(xdtmp) < u_cut ) xdtmp = Real_t(0.0);
+     if( std::fabs(xdtmp) < u_cut ) xdtmp = Real_t(0.0);
      domain.xd(i) = xdtmp ;
 
      ydtmp = domain.yd(i) + domain.ydd(i) * dt ;
-     if( FABS(ydtmp) < u_cut ) ydtmp = Real_t(0.0);
+     if( std::fabs(ydtmp) < u_cut ) ydtmp = Real_t(0.0);
      domain.yd(i) = ydtmp ;
 
      zdtmp = domain.zd(i) + domain.zdd(i) * dt ;
-     if( FABS(zdtmp) < u_cut ) zdtmp = Real_t(0.0);
+     if( std::fabs(zdtmp) < u_cut ) zdtmp = Real_t(0.0);
      domain.zd(i) = zdtmp ;
    }
 }
@@ -129,24 +110,12 @@ void CalcPositionForNodes(Domain &domain, const Real_t dt, Index_t numNode)
 
 void LagrangeNodal(Domain& domain)
 {
-#ifdef SEDOV_SYNC_POS_VEL_EARLY
-   Domain_member fieldData[6] ;
-#endif
-
    const Real_t delt = domain.deltatime() ;
    Real_t u_cut = domain.u_cut() ;
 
   /* time of boundary condition evaluation is beginning of step for force and
    * acceleration boundary conditions. */
   CalcForceForNodes(domain);
-
-#if USE_MPI
-#ifdef SEDOV_SYNC_POS_VEL_EARLY
-   CommRecv(domain, MSG_SYNC_POS_VEL, 6,
-            domain.sizeX() + 1, domain.sizeY() + 1, domain.sizeZ() + 1,
-            false, false) ;
-#endif
-#endif
 
    CalcAccelerationForNodes(domain, domain.numNode());
 
@@ -155,21 +124,6 @@ void LagrangeNodal(Domain& domain)
    CalcVelocityForNodes( domain, delt, u_cut, domain.numNode()) ;
 
    CalcPositionForNodes( domain, delt, domain.numNode() );
-#if USE_MPI
-#ifdef SEDOV_SYNC_POS_VEL_EARLY
-  fieldData[0] = &Domain::x ;
-  fieldData[1] = &Domain::y ;
-  fieldData[2] = &Domain::z ;
-  fieldData[3] = &Domain::xd ;
-  fieldData[4] = &Domain::yd ;
-  fieldData[5] = &Domain::zd ;
-
-   CommSend(domain, MSG_SYNC_POS_VEL, 6, fieldData,
-            domain.sizeX() + 1, domain.sizeY() + 1, domain.sizeZ() + 1,
-            false, false) ;
-   CommSyncPosVel(domain) ;
-#endif
-#endif
 
   return;
 }

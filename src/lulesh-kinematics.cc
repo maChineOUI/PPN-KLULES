@@ -166,11 +166,7 @@ void CalcLagrangeElements(Domain& domain, Real_t* vnew)
         // See if any volumes are negative, and take appropriate action.
          if (vnew[k] <= Real_t(0.0))
         {
-#if USE_MPI
-           MPI_Abort(MPI_COMM_WORLD, VolumeError) ;
-#else
            exit(VolumeError);
-#endif
         }
       }
       domain.DeallocateStrains();

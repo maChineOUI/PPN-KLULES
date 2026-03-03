@@ -27,7 +27,7 @@ void CalcPressureForElems(Real_t* p_new, Real_t* bvc,
 
       p_new[i] = bvc[i] * e_old[i] ;
 
-      if    (FABS(p_new[i]) <  p_cut   )
+      if    (std::fabs(p_new[i]) <  p_cut   )
          p_new[i] = Real_t(0.0) ;
 
       if    ( vnewc[elem] >= eosvmax ) /* impossible condition here? */
@@ -52,7 +52,7 @@ void CalcEnergyForElems(Real_t* p_new, Real_t* e_new, Real_t* q_new,
                         Real_t eosvmax,
                         Index_t length, Index_t *regElemList)
 {
-   Real_t *pHalfStep = Allocate<Real_t>(length) ;
+   std::vector<Real_t> pHalfStep(length) ;
 
 #pragma omp parallel for firstprivate(length, emin)
    for (Index_t i = 0 ; i < length ; ++i) {
@@ -64,7 +64,7 @@ void CalcEnergyForElems(Real_t* p_new, Real_t* e_new, Real_t* q_new,
       }
    }
 
-   CalcPressureForElems(pHalfStep, bvc, pbvc, e_new, compHalfStep, vnewc,
+   CalcPressureForElems(pHalfStep.data(), bvc, pbvc, e_new, compHalfStep, vnewc,
                         pmin, p_cut, eosvmax, length, regElemList);
 
 #pragma omp parallel for firstprivate(length, rho0)
@@ -81,7 +81,7 @@ void CalcEnergyForElems(Real_t* p_new, Real_t* e_new, Real_t* q_new,
          if ( ssc <= Real_t(.1111111e-36) ) {
             ssc = Real_t(.3333333e-18) ;
          } else {
-            ssc = SQRT(ssc) ;
+            ssc = std::sqrt(ssc) ;
          }
 
          q_new[i] = (ssc*ql_old[i] + qq_old[i]) ;
@@ -97,7 +97,7 @@ void CalcEnergyForElems(Real_t* p_new, Real_t* e_new, Real_t* q_new,
 
       e_new[i] += Real_t(0.5) * work[i];
 
-      if (FABS(e_new[i]) < e_cut) {
+      if (std::fabs(e_new[i]) < e_cut) {
          e_new[i] = Real_t(0.)  ;
       }
       if (     e_new[i]  < emin ) {
@@ -124,7 +124,7 @@ void CalcEnergyForElems(Real_t* p_new, Real_t* e_new, Real_t* q_new,
          if ( ssc <= Real_t(.1111111e-36) ) {
             ssc = Real_t(.3333333e-18) ;
          } else {
-            ssc = SQRT(ssc) ;
+            ssc = std::sqrt(ssc) ;
          }
 
          q_tilde = (ssc*ql_old[i] + qq_old[i]) ;
@@ -134,7 +134,7 @@ void CalcEnergyForElems(Real_t* p_new, Real_t* e_new, Real_t* q_new,
                                - Real_t(8.0)*(pHalfStep[i] + q_new[i])
                                + (p_new[i] + q_tilde)) * delvc[i]*sixth ;
 
-      if (FABS(e_new[i]) < e_cut) {
+      if (std::fabs(e_new[i]) < e_cut) {
          e_new[i] = Real_t(0.)  ;
       }
       if (     e_new[i]  < emin ) {
@@ -156,16 +156,14 @@ void CalcEnergyForElems(Real_t* p_new, Real_t* e_new, Real_t* q_new,
          if ( ssc <= Real_t(.1111111e-36) ) {
             ssc = Real_t(.3333333e-18) ;
          } else {
-            ssc = SQRT(ssc) ;
+            ssc = std::sqrt(ssc) ;
          }
 
          q_new[i] = (ssc*ql_old[i] + qq_old[i]) ;
 
-         if (FABS(q_new[i]) < q_cut) q_new[i] = Real_t(0.) ;
+         if (std::fabs(q_new[i]) < q_cut) q_new[i] = Real_t(0.) ;
       }
    }
-
-   Release(&pHalfStep) ;
 
    return ;
 }
@@ -188,7 +186,7 @@ void CalcSoundSpeedForElems(Domain &domain,
          ssTmp = Real_t(.3333333e-18);
       }
       else {
-         ssTmp = SQRT(ssTmp);
+         ssTmp = std::sqrt(ssTmp);
       }
       domain.ss(elem) = ssTmp ;
    }
@@ -214,20 +212,20 @@ void EvalEOSForElems(Domain& domain, Real_t *vnewc,
    // These temporaries will be of different size for
    // each call (due to different sized region element
    // lists)
-   Real_t *e_old = Allocate<Real_t>(numElemReg) ;
-   Real_t *delvc = Allocate<Real_t>(numElemReg) ;
-   Real_t *p_old = Allocate<Real_t>(numElemReg) ;
-   Real_t *q_old = Allocate<Real_t>(numElemReg) ;
-   Real_t *compression = Allocate<Real_t>(numElemReg) ;
-   Real_t *compHalfStep = Allocate<Real_t>(numElemReg) ;
-   Real_t *qq_old = Allocate<Real_t>(numElemReg) ;
-   Real_t *ql_old = Allocate<Real_t>(numElemReg) ;
-   Real_t *work = Allocate<Real_t>(numElemReg) ;
-   Real_t *p_new = Allocate<Real_t>(numElemReg) ;
-   Real_t *e_new = Allocate<Real_t>(numElemReg) ;
-   Real_t *q_new = Allocate<Real_t>(numElemReg) ;
-   Real_t *bvc = Allocate<Real_t>(numElemReg) ;
-   Real_t *pbvc = Allocate<Real_t>(numElemReg) ;
+   std::vector<Real_t> e_old(numElemReg) ;
+   std::vector<Real_t> delvc(numElemReg) ;
+   std::vector<Real_t> p_old(numElemReg) ;
+   std::vector<Real_t> q_old(numElemReg) ;
+   std::vector<Real_t> compression(numElemReg) ;
+   std::vector<Real_t> compHalfStep(numElemReg) ;
+   std::vector<Real_t> qq_old(numElemReg) ;
+   std::vector<Real_t> ql_old(numElemReg) ;
+   std::vector<Real_t> work(numElemReg) ;
+   std::vector<Real_t> p_new(numElemReg) ;
+   std::vector<Real_t> e_new(numElemReg) ;
+   std::vector<Real_t> q_new(numElemReg) ;
+   std::vector<Real_t> bvc(numElemReg) ;
+   std::vector<Real_t> pbvc(numElemReg) ;
 
    //loop to add load imbalance based on region number
    for(Int_t j = 0; j < rep; j++) {
@@ -281,11 +279,11 @@ void EvalEOSForElems(Domain& domain, Real_t *vnewc,
             work[i] = Real_t(0.) ;
          }
       }
-      CalcEnergyForElems(p_new, e_new, q_new, bvc, pbvc,
-                         p_old, e_old,  q_old, compression, compHalfStep,
-                         vnewc, work,  delvc, pmin,
+      CalcEnergyForElems(p_new.data(), e_new.data(), q_new.data(), bvc.data(), pbvc.data(),
+                         p_old.data(), e_old.data(), q_old.data(), compression.data(), compHalfStep.data(),
+                         vnewc, work.data(), delvc.data(), pmin,
                          p_cut, e_cut, q_cut, emin,
-                         qq_old, ql_old, rho0, eosvmax,
+                         qq_old.data(), ql_old.data(), rho0, eosvmax,
                          numElemReg, regElemList);
    }
 
@@ -298,24 +296,9 @@ void EvalEOSForElems(Domain& domain, Real_t *vnewc,
    }
 
    CalcSoundSpeedForElems(domain,
-                          vnewc, rho0, e_new, p_new,
-                          pbvc, bvc, ss4o3,
+                          vnewc, rho0, e_new.data(), p_new.data(),
+                          pbvc.data(), bvc.data(), ss4o3,
                           numElemReg, regElemList) ;
-
-   Release(&pbvc) ;
-   Release(&bvc) ;
-   Release(&q_new) ;
-   Release(&e_new) ;
-   Release(&p_new) ;
-   Release(&work) ;
-   Release(&ql_old) ;
-   Release(&qq_old) ;
-   Release(&compHalfStep) ;
-   Release(&compression) ;
-   Release(&q_old) ;
-   Release(&p_old) ;
-   Release(&delvc) ;
-   Release(&e_old) ;
 }
 
 /******************************************/
@@ -363,11 +346,7 @@ void ApplyMaterialPropertiesForElems(Domain& domain, Real_t vnew[])
                 vc = eosvmax ;
           }
           if (vc <= 0.) {
-#if USE_MPI
-             MPI_Abort(MPI_COMM_WORLD, VolumeError) ;
-#else
              exit(VolumeError);
-#endif
           }
        }
     }
@@ -402,7 +381,7 @@ void UpdateVolumesForElems(Domain &domain, Real_t *vnew,
       for(Index_t i=0 ; i<length ; ++i) {
          Real_t tmpV = vnew[i] ;
 
-         if ( FABS(tmpV - Real_t(1.0)) < v_cut )
+         if ( std::fabs(tmpV - Real_t(1.0)) < v_cut )
             tmpV = Real_t(1.0) ;
 
          domain.v(i) = tmpV ;

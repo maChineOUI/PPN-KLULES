@@ -1,10 +1,7 @@
-#include <string.h>
-#include <stdlib.h>
-#include <ctype.h>
-#include <stdio.h>
-#if USE_MPI
-#include <mpi.h>
-#endif
+#include <cstring>
+#include <cstdlib>
+#include <cctype>
+#include <cstdio>
 #include "lulesh-util.h"
 
 /* Helper function for converting strings to ints, with error checking */
@@ -14,7 +11,7 @@ int StrToInt(const char *token, int *retVal)
    char *endptr ;
    const int decimal_base = 10 ;
 
-   if (token == NULL)
+   if (token == nullptr)
       return 0 ;
    
    c = token ;
@@ -49,11 +46,7 @@ static void ParseError(const char *message, int myRank)
 {
    if (myRank == 0) {
       printf("%s\n", message);
-#if USE_MPI      
-      MPI_Abort(MPI_COMM_WORLD, -1);
-#else
       exit(-1);
-#endif
    }
 }
 
@@ -139,23 +132,10 @@ void ParseCommandLineOptions(int argc, char *argv[],
             }
             i+=2;
          }
-         /* -v */
-         else if (strcmp(argv[i], "-v") == 0) {
-#if VIZ_MESH            
-            opts->viz = 1;
-#else
-            ParseError("Use of -v requires compiling with -DVIZ_MESH\n", myRank);
-#endif
-            i++;
-         }
          /* -h */
          else if (strcmp(argv[i], "-h") == 0) {
             PrintCommandLineOptions(argv[0], myRank);
-#if USE_MPI            
-            MPI_Abort(MPI_COMM_WORLD, 0);
-#else
             exit(0);
-#endif
          }
          else {
             char msg[80];
@@ -193,7 +173,7 @@ void VerifyAndWriteFinalOutput(Real_t elapsed_time,
 
    for (Index_t j=0; j<nx; ++j) {
       for (Index_t k=j+1; k<nx; ++k) {
-         Real_t AbsDiff = FABS(locDom.e(j*nx+k)-locDom.e(k*nx+j));
+         Real_t AbsDiff = std::fabs(locDom.e(j*nx+k)-locDom.e(k*nx+j));
          TotalAbsDiff  += AbsDiff;
 
          if (MaxAbsDiff <AbsDiff) MaxAbsDiff = AbsDiff;

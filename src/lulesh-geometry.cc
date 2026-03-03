@@ -464,7 +464,7 @@ Real_t CalcElemCharacteristicLength( const Real_t x[8],
                 z[3],z[0],z[4],z[7]) ;
    charLength = std::max(a,charLength) ;
 
-   charLength = Real_t(4.0) * volume / SQRT(charLength);
+   charLength = Real_t(4.0) * volume / std::sqrt(charLength);
 
    return charLength;
 }

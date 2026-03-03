@@ -52,18 +52,16 @@ void IntegrateStressForElems( Domain &domain,
 #endif
 
    Index_t numElem8 = numElem * 8 ;
-   Real_t *fx_elem;
-   Real_t *fy_elem;
-   Real_t *fz_elem;
+   std::vector<Real_t> fx_elem, fy_elem, fz_elem ;
    Real_t fx_local[8] ;
    Real_t fy_local[8] ;
    Real_t fz_local[8] ;
 
 
   if (numthreads > 1) {
-     fx_elem = Allocate<Real_t>(numElem8) ;
-     fy_elem = Allocate<Real_t>(numElem8) ;
-     fz_elem = Allocate<Real_t>(numElem8) ;
+     fx_elem.resize(numElem8) ;
+     fy_elem.resize(numElem8) ;
+     fz_elem.resize(numElem8) ;
   }
   // loop over all elements
 
@@ -129,9 +127,6 @@ void IntegrateStressForElems( Domain &domain,
         domain.fy(gnode) = fy_tmp ;
         domain.fz(gnode) = fz_tmp ;
      }
-     Release(&fz_elem) ;
-     Release(&fy_elem) ;
-     Release(&fx_elem) ;
   }
 }
 
@@ -203,14 +198,12 @@ void CalcFBHourglassForceForElems( Domain &domain,
 
    Index_t numElem8 = numElem * 8 ;
 
-   Real_t *fx_elem;
-   Real_t *fy_elem;
-   Real_t *fz_elem;
+   std::vector<Real_t> fx_elem, fy_elem, fz_elem ;
 
    if(numthreads > 1) {
-      fx_elem = Allocate<Real_t>(numElem8) ;
-      fy_elem = Allocate<Real_t>(numElem8) ;
-      fz_elem = Allocate<Real_t>(numElem8) ;
+      fx_elem.resize(numElem8) ;
+      fy_elem.resize(numElem8) ;
+      fz_elem.resize(numElem8) ;
    }
 
    Real_t  gamma[4][8];
@@ -325,7 +318,7 @@ void CalcFBHourglassForceForElems( Domain &domain,
 
       ss1=domain.ss(i2);
       mass1=domain.elemMass(i2);
-      volume13=CBRT(determ[i2]);
+      volume13=std::cbrt(determ[i2]);
 
       Index_t n0si2 = elemToNode[0];
       Index_t n1si2 = elemToNode[1];
@@ -457,9 +450,6 @@ void CalcFBHourglassForceForElems( Domain &domain,
          domain.fy(gnode) += fy_tmp ;
          domain.fz(gnode) += fz_tmp ;
       }
-      Release(&fz_elem) ;
-      Release(&fy_elem) ;
-      Release(&fx_elem) ;
    }
 }
 
@@ -471,12 +461,12 @@ void CalcHourglassControlForElems(Domain& domain,
 {
    Index_t numElem = domain.numElem() ;
    Index_t numElem8 = numElem * 8 ;
-   Real_t *dvdx = Allocate<Real_t>(numElem8) ;
-   Real_t *dvdy = Allocate<Real_t>(numElem8) ;
-   Real_t *dvdz = Allocate<Real_t>(numElem8) ;
-   Real_t *x8n  = Allocate<Real_t>(numElem8) ;
-   Real_t *y8n  = Allocate<Real_t>(numElem8) ;
-   Real_t *z8n  = Allocate<Real_t>(numElem8) ;
+   std::vector<Real_t> dvdx(numElem8) ;
+   std::vector<Real_t> dvdy(numElem8) ;
+   std::vector<Real_t> dvdz(numElem8) ;
+   std::vector<Real_t> x8n(numElem8) ;
+   std::vector<Real_t> y8n(numElem8) ;
+   std::vector<Real_t> z8n(numElem8) ;
 
    /* start loop over elements */
 #pragma omp parallel for firstprivate(numElem)
@@ -505,28 +495,16 @@ void CalcHourglassControlForElems(Domain& domain,
 
       /* Do a check for negative volumes */
       if ( domain.v(i) <= Real_t(0.0) ) {
-#if USE_MPI
-         MPI_Abort(MPI_COMM_WORLD, VolumeError) ;
-#else
          exit(VolumeError);
-#endif
       }
    }
 
    if ( hgcoef > Real_t(0.) ) {
       CalcFBHourglassForceForElems( domain,
-                                    determ, x8n, y8n, z8n, dvdx, dvdy, dvdz,
+                                    determ, x8n.data(), y8n.data(), z8n.data(),
+                                    dvdx.data(), dvdy.data(), dvdz.data(),
                                     hgcoef, numElem, domain.numNode()) ;
    }
-
-   Release(&z8n) ;
-   Release(&y8n) ;
-   Release(&x8n) ;
-   Release(&dvdz) ;
-   Release(&dvdy) ;
-   Release(&dvdx) ;
-
-   return ;
 }
 
 /******************************************/
@@ -536,37 +514,28 @@ void CalcVolumeForceForElems(Domain& domain)
    Index_t numElem = domain.numElem() ;
    if (numElem != 0) {
       Real_t  hgcoef = domain.hgcoef() ;
-      Real_t *sigxx  = Allocate<Real_t>(numElem) ;
-      Real_t *sigyy  = Allocate<Real_t>(numElem) ;
-      Real_t *sigzz  = Allocate<Real_t>(numElem) ;
-      Real_t *determ = Allocate<Real_t>(numElem) ;
+      std::vector<Real_t> sigxx(numElem) ;
+      std::vector<Real_t> sigyy(numElem) ;
+      std::vector<Real_t> sigzz(numElem) ;
+      std::vector<Real_t> determ(numElem) ;
 
       /* Sum contributions to total stress tensor */
-      InitStressTermsForElems(domain, sigxx, sigyy, sigzz, numElem);
+      InitStressTermsForElems(domain, sigxx.data(), sigyy.data(), sigzz.data(), numElem);
 
       // call elemlib stress integration loop to produce nodal forces from
       // material stresses.
       IntegrateStressForElems( domain,
-                               sigxx, sigyy, sigzz, determ, numElem,
-                               domain.numNode()) ;
+                               sigxx.data(), sigyy.data(), sigzz.data(), determ.data(),
+                               numElem, domain.numNode()) ;
 
       // check for negative element volume
 #pragma omp parallel for firstprivate(numElem)
       for ( Index_t k=0 ; k<numElem ; ++k ) {
          if (determ[k] <= Real_t(0.0)) {
-#if USE_MPI
-            MPI_Abort(MPI_COMM_WORLD, VolumeError) ;
-#else
             exit(VolumeError);
-#endif
          }
       }
 
-      CalcHourglassControlForElems(domain, determ, hgcoef) ;
-
-      Release(&determ) ;
-      Release(&sigzz) ;
-      Release(&sigyy) ;
-      Release(&sigxx) ;
+      CalcHourglassControlForElems(domain, determ.data(), hgcoef) ;
    }
 }

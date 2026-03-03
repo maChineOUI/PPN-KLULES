@@ -1,15 +1,11 @@
-#include <math.h>
-#if USE_MPI
-# include <mpi.h>
-#endif
+#include <cmath>
 #if _OPENMP
 #include <omp.h>
 #endif
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <limits.h>
+#include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <climits>
 #include "lulesh-init.h"
 #include "lulesh-geometry.h"
 
@@ -63,7 +59,7 @@ Domain::Domain(Int_t numRanks, Index_t colLoc,
 
    m_numNode = edgeNodes*edgeNodes*edgeNodes ;
 
-   m_regNumList = new Index_t[numElem()] ;  // material indexset
+   m_conn.m_regNumList.resize(numElem()) ;  // material indexset
 
    // Elem-centered 
    AllocateElemPersistent(numElem()) ;
@@ -106,10 +102,6 @@ Domain::Domain(Int_t numRanks, Index_t colLoc,
 
 #if _OPENMP
    SetupThreadSupportStructures();
-#else
-   // These arrays are not used if we're not threaded
-   m_nodeElemStart = NULL;
-   m_nodeElemCornerList = NULL;
 #endif
 
    // Setup region index sets. For now, these are constant sized
@@ -250,12 +242,8 @@ Domain::SetupThreadSupportStructures()
 #endif
 
   if (numthreads > 1) {
-    // set up node-centered indexing of elements 
-    Index_t *nodeElemCount = new Index_t[numNode()] ;
-
-    for (Index_t i=0; i<numNode(); ++i) {
-      nodeElemCount[i] = 0 ;
-    }
+    // set up node-centered indexing of elements
+    std::vector<Index_t> nodeElemCount(numNode(), 0) ;
 
     for (Index_t i=0; i<numElem(); ++i) {
       Index_t *nl = nodelist(i) ;
@@ -264,16 +252,16 @@ Domain::SetupThreadSupportStructures()
       }
     }
 
-    m_nodeElemStart = new Index_t[numNode()+1] ;
+    m_conn.m_nodeElemStart.resize(numNode()+1) ;
 
-    m_nodeElemStart[0] = 0;
+    m_conn.m_nodeElemStart[0] = 0;
 
     for (Index_t i=1; i <= numNode(); ++i) {
-      m_nodeElemStart[i] =
-	m_nodeElemStart[i-1] + nodeElemCount[i-1] ;
+      m_conn.m_nodeElemStart[i] =
+	m_conn.m_nodeElemStart[i-1] + nodeElemCount[i-1] ;
     }
-       
-    m_nodeElemCornerList = new Index_t[m_nodeElemStart[numNode()]];
+
+    m_conn.m_nodeElemCornerList.resize(m_conn.m_nodeElemStart[numNode()]);
 
     for (Index_t i=0; i < numNode(); ++i) {
       nodeElemCount[i] = 0;
@@ -284,32 +272,21 @@ Domain::SetupThreadSupportStructures()
       for (Index_t j=0; j < 8; ++j) {
 	Index_t m = nl[j];
 	Index_t k = i*8 + j ;
-	Index_t offset = m_nodeElemStart[m] + nodeElemCount[m] ;
-	m_nodeElemCornerList[offset] = k;
+	Index_t offset = m_conn.m_nodeElemStart[m] + nodeElemCount[m] ;
+	m_conn.m_nodeElemCornerList[offset] = k;
 	++(nodeElemCount[m]) ;
       }
     }
 
-    Index_t clSize = m_nodeElemStart[numNode()] ;
+    Index_t clSize = m_conn.m_nodeElemStart[numNode()] ;
     for (Index_t i=0; i < clSize; ++i) {
-      Index_t clv = m_nodeElemCornerList[i] ;
+      Index_t clv = m_conn.m_nodeElemCornerList[i] ;
       if ((clv < 0) || (clv > numElem()*8)) {
 	fprintf(stderr,
 		"AllocateNodeElemIndexes(): nodeElemCornerList entry out of range!\n");
-#if USE_MPI
-	MPI_Abort(MPI_COMM_WORLD, -1);
-#else
 	exit(-1);
-#endif
       }
     }
-
-    delete [] nodeElemCount ;
-  }
-  else {
-    // These arrays are not used if we're not threaded
-    m_nodeElemStart = NULL;
-    m_nodeElemCornerList = NULL;
   }
 }
 
@@ -319,7 +296,7 @@ void
 Domain::SetupCommBuffers(Int_t edgeNodes)
 {
   // allocate a buffer large enough for nodal ghost data 
-  Index_t maxEdgeSize = MAX(this->sizeX(), MAX(this->sizeY(), this->sizeZ()))+1 ;
+  Index_t maxEdgeSize = std::max({this->sizeX(), this->sizeY(), this->sizeZ()})+1 ;
   m_maxPlaneSize = CACHE_ALIGN_REAL(maxEdgeSize*maxEdgeSize) ;
   m_maxEdgeSize = CACHE_ALIGN_REAL(maxEdgeSize) ;
 
@@ -331,45 +308,13 @@ Domain::SetupCommBuffers(Int_t edgeNodes)
   m_planeMin = (m_planeLoc == 0)    ? 0 : 1;
   m_planeMax = (m_planeLoc == m_tp-1) ? 0 : 1;
 
-#if USE_MPI   
-  // account for face communication 
-  Index_t comBufSize =
-    (m_rowMin + m_rowMax + m_colMin + m_colMax + m_planeMin + m_planeMax) *
-    m_maxPlaneSize * MAX_FIELDS_PER_MPI_COMM ;
-
-  // account for edge communication 
-  comBufSize +=
-    ((m_rowMin & m_colMin) + (m_rowMin & m_planeMin) + (m_colMin & m_planeMin) +
-     (m_rowMax & m_colMax) + (m_rowMax & m_planeMax) + (m_colMax & m_planeMax) +
-     (m_rowMax & m_colMin) + (m_rowMin & m_planeMax) + (m_colMin & m_planeMax) +
-     (m_rowMin & m_colMax) + (m_rowMax & m_planeMin) + (m_colMax & m_planeMin)) *
-    m_maxEdgeSize * MAX_FIELDS_PER_MPI_COMM ;
-
-  // account for corner communication 
-  // factor of 16 is so each buffer has its own cache line 
-  comBufSize += ((m_rowMin & m_colMin & m_planeMin) +
-		 (m_rowMin & m_colMin & m_planeMax) +
-		 (m_rowMin & m_colMax & m_planeMin) +
-		 (m_rowMin & m_colMax & m_planeMax) +
-		 (m_rowMax & m_colMin & m_planeMin) +
-		 (m_rowMax & m_colMin & m_planeMax) +
-		 (m_rowMax & m_colMax & m_planeMin) +
-		 (m_rowMax & m_colMax & m_planeMax)) * CACHE_COHERENCE_PAD_REAL ;
-
-  this->commDataSend = new Real_t[comBufSize] ;
-  this->commDataRecv = new Real_t[comBufSize] ;
-  // prevent floating point exceptions 
-  memset(this->commDataSend, 0, comBufSize*sizeof(Real_t)) ;
-  memset(this->commDataRecv, 0, comBufSize*sizeof(Real_t)) ;
-#endif   
-
   // Boundary nodesets
   if (m_colLoc == 0)
-    m_symmX.resize(edgeNodes*edgeNodes);
+    m_nodes.m_symmX.resize(edgeNodes*edgeNodes);
   if (m_rowLoc == 0)
-    m_symmY.resize(edgeNodes*edgeNodes);
+    m_nodes.m_symmY.resize(edgeNodes*edgeNodes);
   if (m_planeLoc == 0)
-    m_symmZ.resize(edgeNodes*edgeNodes);
+    m_nodes.m_symmZ.resize(edgeNodes*edgeNodes);
 }
 
 
@@ -377,17 +322,11 @@ Domain::SetupCommBuffers(Int_t edgeNodes)
 void
 Domain::CreateRegionIndexSets(Int_t nr, Int_t balance)
 {
-#if USE_MPI   
-   Index_t myRank;
-   MPI_Comm_rank(MPI_COMM_WORLD, &myRank) ;
-   srand(myRank);
-#else
    srand(0);
    Index_t myRank = 0;
-#endif
    this->numReg() = nr;
-   m_regElemSize = new Index_t[numReg()];
-   m_regElemlist = new Index_t*[numReg()];
+   m_conn.m_regElemSize.resize(numReg());
+   m_conn.m_regElemlist.resize(numReg());
    Index_t nextIndex = 0;
    //if we only have one region just fill it
    // Fill out the regNumList with material numbers, which are always
@@ -408,7 +347,7 @@ Domain::CreateRegionIndexSets(Int_t nr, Int_t balance)
       Index_t elements;
       Index_t runto = 0;
       Int_t costDenominator = 0;
-      Int_t* regBinEnd = new Int_t[numReg()];
+      std::vector<Int_t> regBinEnd(numReg());
       //Determine the relative weights of all the regions.  This is based off the -b flag.  Balance is the value passed into b.  
       for (Index_t i=0 ; i<numReg() ; ++i) {
          regElemSize(i) = 0;
@@ -472,7 +411,7 @@ Domain::CreateRegionIndexSets(Int_t nr, Int_t balance)
    }
    // Second, allocate each region index set
    for (Index_t i=0 ; i<numReg() ; ++i) {
-      m_regElemlist[i] = new Index_t[regElemSize(i)];
+      m_conn.m_regElemlist[i].resize(regElemSize(i));
       regElemSize(i) = 0;
    }
    // Third, fill index sets
@@ -494,13 +433,13 @@ Domain::SetupSymmetryPlanes(Int_t edgeNodes)
     Index_t rowInc   = i*edgeNodes ;
     for (Index_t j=0; j<edgeNodes; ++j) {
       if (m_planeLoc == 0) {
-	m_symmZ[nidx] = rowInc   + j ;
+	m_nodes.m_symmZ[nidx] = rowInc   + j ;
       }
       if (m_rowLoc == 0) {
-	m_symmY[nidx] = planeInc + j ;
+	m_nodes.m_symmY[nidx] = planeInc + j ;
       }
       if (m_colLoc == 0) {
-	m_symmX[nidx] = planeInc + j*edgeNodes ;
+	m_nodes.m_symmX[nidx] = planeInc + j*edgeNodes ;
       }
       ++nidx ;
     }
@@ -659,27 +598,11 @@ void InitMeshDecomp(Int_t numRanks, Int_t myRank,
    testProcs = Int_t(cbrt(Real_t(numRanks))+0.5) ;
    if (testProcs*testProcs*testProcs != numRanks) {
       printf("Num processors must be a cube of an integer (1, 8, 27, ...)\n") ;
-#if USE_MPI      
-      MPI_Abort(MPI_COMM_WORLD, -1) ;
-#else
       exit(-1);
-#endif
    }
    if (sizeof(Real_t) != 4 && sizeof(Real_t) != 8) {
-      printf("MPI operations only support float and double right now...\n");
-#if USE_MPI      
-      MPI_Abort(MPI_COMM_WORLD, -1) ;
-#else
+      printf("Only float and double are supported.\n");
       exit(-1);
-#endif
-   }
-   if (MAX_FIELDS_PER_MPI_COMM > CACHE_COHERENCE_PAD_REAL) {
-      printf("corner element comm buffers too small.  Fix code.\n") ;
-#if USE_MPI      
-      MPI_Abort(MPI_COMM_WORLD, -1) ;
-#else
-      exit(-1);
-#endif
    }
 
    dx = testProcs ;
@@ -689,11 +612,7 @@ void InitMeshDecomp(Int_t numRanks, Int_t myRank,
    // temporary test
    if (dx*dy*dz != numRanks) {
       printf("error -- must have as many domains as procs\n") ;
-#if USE_MPI      
-      MPI_Abort(MPI_COMM_WORLD, -1) ;
-#else
       exit(-1);
-#endif
    }
    Int_t remainder = dx*dy*dz % numRanks ;
    if (myRank < remainder) {

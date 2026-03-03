@@ -1,53 +1,130 @@
-This is the README for LULESH 2.0
+# LULESH 2.0 — Refactored Serial Build
 
-More information including LULESH 1.0 can be found at https://codesign.llnl.gov/lulesh.php
+LULESH（Livermore Unstructured Lagrangian Explicit Shock Hydrodynamics）是由
+Lawrence Livermore National Laboratory 开发的 HPC 代理应用，用于评估处理器和编程
+模型在拉格朗日流体力学计算上的性能。本版本在 LULESH 2.0 基础上进行了现代化重构。
 
-If you have any questions or problems please contact:
+原始项目：https://codesign.llnl.gov/lulesh.php
 
-Ian Karlin <karlin1@llnl.gov>
-Jeff Keasler <keasler1@llnl.gov> or
-Rob Neely <neely4@llnl.gov>
+---
 
-Also please send any notable results to Ian Karlin <karlin1@llnl.gov> as we are still evaluating the performance of this code.
+## 与原版的主要差异
 
-*** Notable changes in LULESH 2.0 ***
+| 项目 | 原版 LULESH 2.0 | 本版本 |
+|------|----------------|--------|
+| 构建系统 | Makefile | CMake 3.16+ |
+| MPI | 支持 | 已移除（纯串行） |
+| 可视化 | Silo/VisIt（可选） | 已移除 |
+| 代码组织 | 4 个大文件 | 11 个单职责模块 |
+| C++ 标准 | C++11 | C++20 |
 
-Split functionality into different files
-lulesh.cc - where most (all?) of the timed functionality lies
-lulesh-comm.cc - MPI functionality
-lulesh-init.cc - Setup code
-lulesh-viz.cc  - Support for visualization option
-lulesh-util.cc - Non-timed functions
+---
 
-The concept of "regions" was added, although every region is the same ideal gas material, and the same sedov blast wave problem is still the only problem its hardcoded to solve. Regions allow two things important to making this proxy app more representative:
+## 项目结构
 
-Four of the LULESH routines are now performed on a region-by-region basis, making the memory access patterns non-unit stride
+```
+LULESH/
+├── CMakeLists.txt
+├── README
+├── include/              # 头文件
+│   ├── lulesh.h          # Domain 类、公共类型定义
+│   ├── lulesh-geometry.h
+│   ├── lulesh-stress.h
+│   ├── lulesh-nodal.h
+│   ├── lulesh-kinematics.h
+│   ├── lulesh-viscosity.h
+│   ├── lulesh-eos.h
+│   ├── lulesh-timestep.h
+│   ├── lulesh-integration.h
+│   ├── lulesh-init.h
+│   └── lulesh-util.h
+├── src/                  # 源文件
+│   ├── lulesh.cc         # main()
+│   ├── lulesh-geometry.cc
+│   ├── lulesh-stress.cc
+│   ├── lulesh-nodal.cc
+│   ├── lulesh-kinematics.cc
+│   ├── lulesh-viscosity.cc
+│   ├── lulesh-eos.cc
+│   ├── lulesh-timestep.cc
+│   ├── lulesh-integration.cc
+│   ├── lulesh-init.cc
+│   └── lulesh-util.cc
+└── build/                # 构建产物（cmake 生成，不进版本控制）
+```
 
-Artificial load imbalances can be easily introduced that could impact parallelization strategies.  
-   * The load balance flag changes region assignment.  Region number is raised to the power entered for assignment probability.  Most likely regions changes with MPI process id.
-   * The cost flag raises the cost of ~45% of the regions to evaluate EOS by the entered multiple.  The cost of 5% is 10x the entered
- multiple.
+---
 
-MPI and OpenMP were added, and coalesced into a single version of the source that can support serial builds, MPI-only, OpenMP-only, and MPI+OpenMP
+## 模块说明
 
-Added support to write plot files using "poor mans parallel I/O" when linked with the silo library, which in turn can be read by VisIt.
+| 模块 | 功能 |
+|------|------|
+| `lulesh-geometry` | 形函数、体积/面积/特征长度计算 |
+| `lulesh-stress` | 应力积分、沙漏（Hourglass/FB）控制 |
+| `lulesh-nodal` | 力→加速度→速度→位置（节点运动学） |
+| `lulesh-kinematics` | 速度梯度、变形率张量 |
+| `lulesh-viscosity` | 单调人工黏性 Q 计算 |
+| `lulesh-eos` | 物态方程（理想气体）、材料属性更新 |
+| `lulesh-timestep` | 时间步长控制（Courant 与水力学约束） |
+| `lulesh-integration` | Leap-Frog 时间积分主循环 |
+| `lulesh-init` | 网格初始化、Domain 构造 |
+| `lulesh-util` | 命令行解析、结果输出 |
 
-Enabled variable timestep calculation by default (courant condition), which results in an additional reduction.  Also, seeded the initial timestep based on analytical equation to allow scaling to arbitrary size.  Therefore steps to solution will differ from LULESH 1.0.
+---
 
-Default domain (mesh) size reduced from 45^3 to 30^3
+## 构建
 
-Command line options to allow for numerous test cases without needing to recompile
+### 依赖
 
-Performance optimizations and code cleanup uncovered during study of LULESH 1.0
+- CMake >= 3.16
+- C++20 兼容编译器（Clang 13+ / GCC 11+）
 
-Added a "Figure of Merit" calculation (elements solved per microsecond) and output in support of using LULESH 2.0 for the 2017 CORAL procurement
+### 编译
 
-Possible Future 2.0 minor updates (other changes possible as discovered)
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+```
 
-* Different default parameters
-* Minor code performance changes and cleanupS
+可执行文件位于 `build/lulesh2.0`。
 
-TODO in future versions
-* Add reader for (truly) unstructured meshes, probably serial only
-* CMake based build system
+### 调试构建
 
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Debug
+cmake --build build
+```
+
+---
+
+## 运行
+
+```bash
+./build/lulesh2.0 [选项]
+```
+
+| 选项 | 说明 | 默认值 |
+|------|------|--------|
+| `-s <N>` | 每个维度的网格边长 | 30 |
+| `-i <N>` | 最大迭代步数 | 9999999 |
+| `-r <N>` | 区域数量 | 11 |
+| `-b <N>` | 区域负载均衡系数 | 1 |
+| `-c <N>` | 高代价区域的代价倍数 | 1 |
+| `-p` | 打印每步进度 | 关 |
+| `-q` | 静默模式 | 关 |
+| `-h` | 显示帮助 | — |
+
+### 正确性验证
+
+```bash
+./build/lulesh2.0 -s 10 -i 50
+# 期望输出：Final Origin Energy = 8.104796e+04
+```
+
+---
+
+## 清理
+
+```bash
+rm -rf build/
+```

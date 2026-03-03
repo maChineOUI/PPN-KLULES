@@ -24,13 +24,7 @@ void TimeIncrement(Domain& domain)
          gnewdt = domain.dthydro() * Real_t(2.0) / Real_t(3.0) ;
       }
 
-#if USE_MPI
-      MPI_Allreduce(&gnewdt, &newdt, 1,
-                    ((sizeof(Real_t) == 4) ? MPI_FLOAT : MPI_DOUBLE),
-                    MPI_MIN, MPI_COMM_WORLD) ;
-#else
       newdt = gnewdt;
-#endif
 
       ratio = newdt / olddt ;
       if (ratio >= Real_t(1.0)) {
@@ -110,7 +104,7 @@ void CalcCourantConstraintForElems(Domain &domain, Index_t length,
                 * domain.vdov(indx) * domain.vdov(indx) ;
          }
 
-         dtf = SQRT(dtf) ;
+         dtf = std::sqrt(dtf) ;
          dtf = domain.arealg(indx) / dtf ;
 
          if (domain.vdov(indx) != Real_t(0.)) {
@@ -178,7 +172,7 @@ void CalcHydroConstraintForElems(Domain &domain, Index_t length,
          Index_t indx = regElemlist[i] ;
 
          if (domain.vdov(indx) != Real_t(0.)) {
-            Real_t dtdvov = dvovmax / (FABS(domain.vdov(indx))+Real_t(1.e-20)) ;
+            Real_t dtdvov = dvovmax / (std::fabs(domain.vdov(indx))+Real_t(1.e-20)) ;
 
             if ( dthydro_tmp > dtdvov ) {
                   dthydro_tmp = dtdvov ;
