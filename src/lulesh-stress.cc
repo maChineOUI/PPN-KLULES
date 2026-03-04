@@ -1,10 +1,6 @@
 #include "lulesh-stress.h"
 #include "lulesh-geometry.h"
 
-#if _OPENMP
-# include <omp.h>
-#endif
-
 /******************************************/
 
 static inline
@@ -16,10 +12,10 @@ void InitStressTermsForElems(Domain &domain,
    // pull in the stresses appropriate to the hydro integration
    //
 
-#pragma omp parallel for firstprivate(numElem)
-   for (Index_t i = 0 ; i < numElem ; ++i){
+   Kokkos::parallel_for("InitStressTermsForElems", numElem,
+                        [&](Index_t i) {
       sigxx[i] = sigyy[i] = sigzz[i] =  - domain.p(i) - domain.q(i) ;
-   }
+   });
 }
 
 /******************************************/
@@ -45,29 +41,25 @@ void IntegrateStressForElems( Domain &domain,
                               Real_t *sigxx, Real_t *sigyy, Real_t *sigzz,
                               Real_t *determ, Index_t numElem, Index_t numNode)
 {
-#if _OPENMP
-   Index_t numthreads = omp_get_max_threads();
-#else
-   Index_t numthreads = 1;
-#endif
+   Index_t numthreads = Kokkos::DefaultHostExecutionSpace().concurrency();
 
    Index_t numElem8 = numElem * 8 ;
    std::vector<Real_t> fx_elem, fy_elem, fz_elem ;
-   Real_t fx_local[8] ;
-   Real_t fy_local[8] ;
-   Real_t fz_local[8] ;
-
 
   if (numthreads > 1) {
      fx_elem.resize(numElem8) ;
      fy_elem.resize(numElem8) ;
      fz_elem.resize(numElem8) ;
   }
-  // loop over all elements
 
-#pragma omp parallel for firstprivate(numElem)
-  for( Index_t k=0 ; k<numElem ; ++k )
-  {
+  // Extract raw pointers for lambda capture
+  Real_t* fx_elem_ptr = numthreads > 1 ? fx_elem.data() : nullptr ;
+  Real_t* fy_elem_ptr = numthreads > 1 ? fy_elem.data() : nullptr ;
+  Real_t* fz_elem_ptr = numthreads > 1 ? fz_elem.data() : nullptr ;
+
+  // loop over all elements
+  Kokkos::parallel_for("IntegrateStressForElems_scatter", numElem,
+                       [&](Index_t k) {
     const Index_t* const elemToNode = domain.nodelist(k);
     Real_t B[3][8] ;// shape function derivatives
     Real_t x_local[8] ;
@@ -87,12 +79,19 @@ void IntegrateStressForElems( Domain &domain,
     if (numthreads > 1) {
        // Eliminate thread writing conflicts at the nodes by giving
        // each element its own copy to write to
+       Real_t fx_local[8], fy_local[8], fz_local[8] ;
        SumElemStressesToNodeForces( B, sigxx[k], sigyy[k], sigzz[k],
-                                    &fx_elem[k*8],
-                                    &fy_elem[k*8],
-                                    &fz_elem[k*8] ) ;
+                                    fx_local, fy_local, fz_local ) ;
+       for (Index_t ni = 0; ni < 8; ++ni) {
+          fx_elem_ptr[k*8+ni] = fx_local[ni] ;
+          fy_elem_ptr[k*8+ni] = fy_local[ni] ;
+          fz_elem_ptr[k*8+ni] = fz_local[ni] ;
+       }
     }
     else {
+       Real_t fx_local[8] ;
+       Real_t fy_local[8] ;
+       Real_t fz_local[8] ;
        SumElemStressesToNodeForces( B, sigxx[k], sigyy[k], sigzz[k],
                                     fx_local, fy_local, fz_local ) ;
 
@@ -104,14 +103,13 @@ void IntegrateStressForElems( Domain &domain,
           domain.fz(gnode) += fz_local[lnode];
        }
     }
-  }
+  });
 
   if (numthreads > 1) {
      // If threaded, then we need to copy the data out of the temporary
      // arrays used above into the final forces field
-#pragma omp parallel for firstprivate(numNode)
-     for( Index_t gnode=0 ; gnode<numNode ; ++gnode )
-     {
+     Kokkos::parallel_for("IntegrateStressForElems_gather", numNode,
+                          [&](Index_t gnode) {
         Index_t count = domain.nodeElemCount(gnode) ;
         Index_t *cornerList = domain.nodeElemCornerList(gnode) ;
         Real_t fx_tmp = Real_t(0.0) ;
@@ -119,14 +117,14 @@ void IntegrateStressForElems( Domain &domain,
         Real_t fz_tmp = Real_t(0.0) ;
         for (Index_t i=0 ; i < count ; ++i) {
            Index_t elem = cornerList[i] ;
-           fx_tmp += fx_elem[elem] ;
-           fy_tmp += fy_elem[elem] ;
-           fz_tmp += fz_elem[elem] ;
+           fx_tmp += fx_elem_ptr[elem] ;
+           fy_tmp += fy_elem_ptr[elem] ;
+           fz_tmp += fz_elem_ptr[elem] ;
         }
         domain.fx(gnode) = fx_tmp ;
         domain.fy(gnode) = fy_tmp ;
         domain.fz(gnode) = fz_tmp ;
-     }
+     });
   }
 }
 
@@ -184,11 +182,7 @@ void CalcFBHourglassForceForElems( Domain &domain,
                                    Index_t numNode)
 {
 
-#if _OPENMP
-   Index_t numthreads = omp_get_max_threads();
-#else
-   Index_t numthreads = 1;
-#endif
+   Index_t numthreads = Kokkos::DefaultHostExecutionSpace().concurrency();
    /*************************************************
     *
     *     FUNCTION: Calculates the Flanagan-Belytschko anti-hourglass
@@ -205,6 +199,11 @@ void CalcFBHourglassForceForElems( Domain &domain,
       fy_elem.resize(numElem8) ;
       fz_elem.resize(numElem8) ;
    }
+
+   // Extract raw pointers for lambda capture
+   Real_t* fx_elem_ptr = numthreads > 1 ? fx_elem.data() : nullptr ;
+   Real_t* fy_elem_ptr = numthreads > 1 ? fy_elem.data() : nullptr ;
+   Real_t* fz_elem_ptr = numthreads > 1 ? fz_elem.data() : nullptr ;
 
    Real_t  gamma[4][8];
 
@@ -244,10 +243,8 @@ void CalcFBHourglassForceForElems( Domain &domain,
 /*************************************************/
 /*    compute the hourglass modes */
 
-
-#pragma omp parallel for firstprivate(numElem, hourg)
-   for(Index_t i2=0;i2<numElem;++i2){
-      Real_t *fx_local, *fy_local, *fz_local ;
+   Kokkos::parallel_for("CalcFBHourglassForceForElems_scatter", numElem,
+                        [&](Index_t i2) {
       Real_t hgfx[8], hgfy[8], hgfz[8] ;
 
       Real_t coefficient;
@@ -365,76 +362,31 @@ void CalcFBHourglassForceForElems( Domain &domain,
       // With the threaded version, we write into local arrays per elem
       // so we don't have to worry about race conditions
       if (numthreads > 1) {
-         fx_local = &fx_elem[i3] ;
-         fx_local[0] = hgfx[0];
-         fx_local[1] = hgfx[1];
-         fx_local[2] = hgfx[2];
-         fx_local[3] = hgfx[3];
-         fx_local[4] = hgfx[4];
-         fx_local[5] = hgfx[5];
-         fx_local[6] = hgfx[6];
-         fx_local[7] = hgfx[7];
-
-         fy_local = &fy_elem[i3] ;
-         fy_local[0] = hgfy[0];
-         fy_local[1] = hgfy[1];
-         fy_local[2] = hgfy[2];
-         fy_local[3] = hgfy[3];
-         fy_local[4] = hgfy[4];
-         fy_local[5] = hgfy[5];
-         fy_local[6] = hgfy[6];
-         fy_local[7] = hgfy[7];
-
-         fz_local = &fz_elem[i3] ;
-         fz_local[0] = hgfz[0];
-         fz_local[1] = hgfz[1];
-         fz_local[2] = hgfz[2];
-         fz_local[3] = hgfz[3];
-         fz_local[4] = hgfz[4];
-         fz_local[5] = hgfz[5];
-         fz_local[6] = hgfz[6];
-         fz_local[7] = hgfz[7];
+         fx_elem_ptr[i3  ] = hgfx[0]; fy_elem_ptr[i3  ] = hgfy[0]; fz_elem_ptr[i3  ] = hgfz[0];
+         fx_elem_ptr[i3+1] = hgfx[1]; fy_elem_ptr[i3+1] = hgfy[1]; fz_elem_ptr[i3+1] = hgfz[1];
+         fx_elem_ptr[i3+2] = hgfx[2]; fy_elem_ptr[i3+2] = hgfy[2]; fz_elem_ptr[i3+2] = hgfz[2];
+         fx_elem_ptr[i3+3] = hgfx[3]; fy_elem_ptr[i3+3] = hgfy[3]; fz_elem_ptr[i3+3] = hgfz[3];
+         fx_elem_ptr[i3+4] = hgfx[4]; fy_elem_ptr[i3+4] = hgfy[4]; fz_elem_ptr[i3+4] = hgfz[4];
+         fx_elem_ptr[i3+5] = hgfx[5]; fy_elem_ptr[i3+5] = hgfy[5]; fz_elem_ptr[i3+5] = hgfz[5];
+         fx_elem_ptr[i3+6] = hgfx[6]; fy_elem_ptr[i3+6] = hgfy[6]; fz_elem_ptr[i3+6] = hgfz[6];
+         fx_elem_ptr[i3+7] = hgfx[7]; fy_elem_ptr[i3+7] = hgfy[7]; fz_elem_ptr[i3+7] = hgfz[7];
       }
       else {
-         domain.fx(n0si2) += hgfx[0];
-         domain.fy(n0si2) += hgfy[0];
-         domain.fz(n0si2) += hgfz[0];
-
-         domain.fx(n1si2) += hgfx[1];
-         domain.fy(n1si2) += hgfy[1];
-         domain.fz(n1si2) += hgfz[1];
-
-         domain.fx(n2si2) += hgfx[2];
-         domain.fy(n2si2) += hgfy[2];
-         domain.fz(n2si2) += hgfz[2];
-
-         domain.fx(n3si2) += hgfx[3];
-         domain.fy(n3si2) += hgfy[3];
-         domain.fz(n3si2) += hgfz[3];
-
-         domain.fx(n4si2) += hgfx[4];
-         domain.fy(n4si2) += hgfy[4];
-         domain.fz(n4si2) += hgfz[4];
-
-         domain.fx(n5si2) += hgfx[5];
-         domain.fy(n5si2) += hgfy[5];
-         domain.fz(n5si2) += hgfz[5];
-
-         domain.fx(n6si2) += hgfx[6];
-         domain.fy(n6si2) += hgfy[6];
-         domain.fz(n6si2) += hgfz[6];
-
-         domain.fx(n7si2) += hgfx[7];
-         domain.fy(n7si2) += hgfy[7];
-         domain.fz(n7si2) += hgfz[7];
+         domain.fx(n0si2) += hgfx[0]; domain.fy(n0si2) += hgfy[0]; domain.fz(n0si2) += hgfz[0];
+         domain.fx(n1si2) += hgfx[1]; domain.fy(n1si2) += hgfy[1]; domain.fz(n1si2) += hgfz[1];
+         domain.fx(n2si2) += hgfx[2]; domain.fy(n2si2) += hgfy[2]; domain.fz(n2si2) += hgfz[2];
+         domain.fx(n3si2) += hgfx[3]; domain.fy(n3si2) += hgfy[3]; domain.fz(n3si2) += hgfz[3];
+         domain.fx(n4si2) += hgfx[4]; domain.fy(n4si2) += hgfy[4]; domain.fz(n4si2) += hgfz[4];
+         domain.fx(n5si2) += hgfx[5]; domain.fy(n5si2) += hgfy[5]; domain.fz(n5si2) += hgfz[5];
+         domain.fx(n6si2) += hgfx[6]; domain.fy(n6si2) += hgfy[6]; domain.fz(n6si2) += hgfz[6];
+         domain.fx(n7si2) += hgfx[7]; domain.fy(n7si2) += hgfy[7]; domain.fz(n7si2) += hgfz[7];
       }
-   }
+   });
 
    if (numthreads > 1) {
      // Collect the data from the local arrays into the final force arrays
-#pragma omp parallel for firstprivate(numNode)
-      for( Index_t gnode=0 ; gnode<numNode ; ++gnode )
-      {
+      Kokkos::parallel_for("CalcFBHourglassForceForElems_gather", numNode,
+                           [&](Index_t gnode) {
          Index_t count = domain.nodeElemCount(gnode) ;
          Index_t *cornerList = domain.nodeElemCornerList(gnode) ;
          Real_t fx_tmp = Real_t(0.0) ;
@@ -442,14 +394,14 @@ void CalcFBHourglassForceForElems( Domain &domain,
          Real_t fz_tmp = Real_t(0.0) ;
          for (Index_t i=0 ; i < count ; ++i) {
             Index_t elem = cornerList[i] ;
-            fx_tmp += fx_elem[elem] ;
-            fy_tmp += fy_elem[elem] ;
-            fz_tmp += fz_elem[elem] ;
+            fx_tmp += fx_elem_ptr[elem] ;
+            fy_tmp += fy_elem_ptr[elem] ;
+            fz_tmp += fz_elem_ptr[elem] ;
          }
          domain.fx(gnode) += fx_tmp ;
          domain.fy(gnode) += fy_tmp ;
          domain.fz(gnode) += fz_tmp ;
-      }
+      });
    }
 }
 
@@ -468,9 +420,17 @@ void CalcHourglassControlForElems(Domain& domain,
    std::vector<Real_t> y8n(numElem8) ;
    std::vector<Real_t> z8n(numElem8) ;
 
+   // Extract raw pointers for lambda capture
+   Real_t* dvdx_ptr = dvdx.data() ;
+   Real_t* dvdy_ptr = dvdy.data() ;
+   Real_t* dvdz_ptr = dvdz.data() ;
+   Real_t* x8n_ptr  = x8n.data() ;
+   Real_t* y8n_ptr  = y8n.data() ;
+   Real_t* z8n_ptr  = z8n.data() ;
+
    /* start loop over elements */
-#pragma omp parallel for firstprivate(numElem)
-   for (Index_t i=0 ; i<numElem ; ++i){
+   Kokkos::parallel_for("CalcHourglassControlForElems", numElem,
+                        [&](Index_t i) {
       Real_t  x1[8],  y1[8],  z1[8] ;
       Real_t pfx[8], pfy[8], pfz[8] ;
 
@@ -483,12 +443,12 @@ void CalcHourglassControlForElems(Domain& domain,
       for(Index_t ii=0;ii<8;++ii){
          Index_t jj=8*i+ii;
 
-         dvdx[jj] = pfx[ii];
-         dvdy[jj] = pfy[ii];
-         dvdz[jj] = pfz[ii];
-         x8n[jj]  = x1[ii];
-         y8n[jj]  = y1[ii];
-         z8n[jj]  = z1[ii];
+         dvdx_ptr[jj] = pfx[ii];
+         dvdy_ptr[jj] = pfy[ii];
+         dvdz_ptr[jj] = pfz[ii];
+         x8n_ptr[jj]  = x1[ii];
+         y8n_ptr[jj]  = y1[ii];
+         z8n_ptr[jj]  = z1[ii];
       }
 
       determ[i] = domain.volo(i) * domain.v(i);
@@ -497,12 +457,12 @@ void CalcHourglassControlForElems(Domain& domain,
       if ( domain.v(i) <= Real_t(0.0) ) {
          exit(VolumeError);
       }
-   }
+   });
 
    if ( hgcoef > Real_t(0.) ) {
       CalcFBHourglassForceForElems( domain,
-                                    determ, x8n.data(), y8n.data(), z8n.data(),
-                                    dvdx.data(), dvdy.data(), dvdz.data(),
+                                    determ, x8n_ptr, y8n_ptr, z8n_ptr,
+                                    dvdx_ptr, dvdy_ptr, dvdz_ptr,
                                     hgcoef, numElem, domain.numNode()) ;
    }
 }
@@ -529,12 +489,13 @@ void CalcVolumeForceForElems(Domain& domain)
                                numElem, domain.numNode()) ;
 
       // check for negative element volume
-#pragma omp parallel for firstprivate(numElem)
-      for ( Index_t k=0 ; k<numElem ; ++k ) {
-         if (determ[k] <= Real_t(0.0)) {
+      Real_t* determ_ptr = determ.data() ;
+      Kokkos::parallel_for("CalcVolumeForceForElems_check", numElem,
+                           [&](Index_t k) {
+         if (determ_ptr[k] <= Real_t(0.0)) {
             exit(VolumeError);
          }
-      }
+      });
 
       CalcHourglassControlForElems(domain, determ.data(), hgcoef) ;
    }

@@ -1,9 +1,5 @@
 #include "lulesh-timestep.h"
 
-#if _OPENMP
-# include <omp.h>
-#endif
-
 /******************************************/
 
 void TimeIncrement(Domain& domain)
@@ -64,74 +60,38 @@ void CalcCourantConstraintForElems(Domain &domain, Index_t length,
                                    Index_t *regElemlist,
                                    Real_t qqc, Real_t& dtcourant)
 {
-#if _OPENMP
-   Index_t threads = omp_get_max_threads();
-   static Index_t *courant_elem_per_thread;
-   static Real_t *dtcourant_per_thread;
-   static bool first = true;
-   if (first) {
-     courant_elem_per_thread = new Index_t[threads];
-     dtcourant_per_thread = new Real_t[threads];
-     first = false;
-   }
-#else
-   Index_t threads = 1;
-   Index_t courant_elem_per_thread[1];
-   Real_t  dtcourant_per_thread[1];
-#endif
+   const Real_t qqc2 = Real_t(64.0) * qqc * qqc ;
 
+   using minloc_t = Kokkos::MinLoc<Real_t, Index_t> ;
+   typename minloc_t::value_type result ;
 
-#pragma omp parallel firstprivate(length, qqc)
-   {
-      Real_t   qqc2 = Real_t(64.0) * qqc * qqc ;
-      Real_t   dtcourant_tmp = dtcourant;
-      Index_t  courant_elem  = -1 ;
-
-#if _OPENMP
-      Index_t thread_num = omp_get_thread_num();
-#else
-      Index_t thread_num = 0;
-#endif
-
-#pragma omp for
-      for (Index_t i = 0 ; i < length ; ++i) {
+   Kokkos::parallel_reduce("CalcCourantConstraintForElems", length,
+      [&](Index_t i, typename minloc_t::value_type& upd) {
          Index_t indx = regElemlist[i] ;
-         Real_t dtf = domain.ss(indx) * domain.ss(indx) ;
-
-         if ( domain.vdov(indx) < Real_t(0.) ) {
-            dtf = dtf
-                + qqc2 * domain.arealg(indx) * domain.arealg(indx)
-                * domain.vdov(indx) * domain.vdov(indx) ;
-         }
-
-         dtf = std::sqrt(dtf) ;
-         dtf = domain.arealg(indx) / dtf ;
 
          if (domain.vdov(indx) != Real_t(0.)) {
-            if ( dtf < dtcourant_tmp ) {
-               dtcourant_tmp = dtf ;
-               courant_elem  = indx ;
+            Real_t dtf = domain.ss(indx) * domain.ss(indx) ;
+
+            if (domain.vdov(indx) < Real_t(0.)) {
+               dtf += qqc2 * domain.arealg(indx) * domain.arealg(indx)
+                           * domain.vdov(indx) * domain.vdov(indx) ;
+            }
+
+            dtf = std::sqrt(dtf) ;
+            dtf = domain.arealg(indx) / dtf ;
+
+            if (dtf < upd.val) {
+               upd.val = dtf ;
+               upd.loc = indx ;
             }
          }
-      }
+      },
+      minloc_t(result)
+   );
 
-      dtcourant_per_thread[thread_num]    = dtcourant_tmp ;
-      courant_elem_per_thread[thread_num] = courant_elem ;
+   if (result.val < dtcourant) {
+      dtcourant = result.val ;
    }
-
-   for (Index_t i = 1; i < threads; ++i) {
-      if (dtcourant_per_thread[i] < dtcourant_per_thread[0] ) {
-         dtcourant_per_thread[0]    = dtcourant_per_thread[i];
-         courant_elem_per_thread[0] = courant_elem_per_thread[i];
-      }
-   }
-
-   if (courant_elem_per_thread[0] != -1) {
-      dtcourant = dtcourant_per_thread[0] ;
-   }
-
-   return ;
-
 }
 
 /******************************************/
@@ -140,63 +100,28 @@ static inline
 void CalcHydroConstraintForElems(Domain &domain, Index_t length,
                                  Index_t *regElemlist, Real_t dvovmax, Real_t& dthydro)
 {
-#if _OPENMP
-   Index_t threads = omp_get_max_threads();
-   static Index_t *hydro_elem_per_thread;
-   static Real_t *dthydro_per_thread;
-   static bool first = true;
-   if (first) {
-     hydro_elem_per_thread = new Index_t[threads];
-     dthydro_per_thread = new Real_t[threads];
-     first = false;
-   }
-#else
-   Index_t threads = 1;
-   Index_t hydro_elem_per_thread[1];
-   Real_t  dthydro_per_thread[1];
-#endif
+   using minloc_t = Kokkos::MinLoc<Real_t, Index_t> ;
+   typename minloc_t::value_type result ;
 
-#pragma omp parallel firstprivate(length, dvovmax)
-   {
-      Real_t dthydro_tmp = dthydro ;
-      Index_t hydro_elem = -1 ;
-
-#if _OPENMP
-      Index_t thread_num = omp_get_thread_num();
-#else
-      Index_t thread_num = 0;
-#endif
-
-#pragma omp for
-      for (Index_t i = 0 ; i < length ; ++i) {
+   Kokkos::parallel_reduce("CalcHydroConstraintForElems", length,
+      [&](Index_t i, typename minloc_t::value_type& upd) {
          Index_t indx = regElemlist[i] ;
 
          if (domain.vdov(indx) != Real_t(0.)) {
-            Real_t dtdvov = dvovmax / (std::fabs(domain.vdov(indx))+Real_t(1.e-20)) ;
+            Real_t dtdvov = dvovmax / (std::fabs(domain.vdov(indx)) + Real_t(1.e-20)) ;
 
-            if ( dthydro_tmp > dtdvov ) {
-                  dthydro_tmp = dtdvov ;
-                  hydro_elem = indx ;
+            if (dtdvov < upd.val) {
+               upd.val = dtdvov ;
+               upd.loc = indx ;
             }
          }
-      }
+      },
+      minloc_t(result)
+   );
 
-      dthydro_per_thread[thread_num]    = dthydro_tmp ;
-      hydro_elem_per_thread[thread_num] = hydro_elem ;
+   if (result.val < dthydro) {
+      dthydro = result.val ;
    }
-
-   for (Index_t i = 1; i < threads; ++i) {
-      if(dthydro_per_thread[i] < dthydro_per_thread[0]) {
-         dthydro_per_thread[0]    = dthydro_per_thread[i];
-         hydro_elem_per_thread[0] =  hydro_elem_per_thread[i];
-      }
-   }
-
-   if (hydro_elem_per_thread[0] != -1) {
-      dthydro =  dthydro_per_thread[0] ;
-   }
-
-   return ;
 }
 
 /******************************************/

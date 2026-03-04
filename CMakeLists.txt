@@ -34,15 +34,12 @@ target_compile_options(lulesh PRIVATE
     -Wextra
     $<$<CONFIG:Release>:-O3>
     $<$<CONFIG:Debug>:-g -O0>
+    $<$<CONFIG:RelWithDebInfo>:-O2 -g -fno-omit-frame-pointer>
 )
 
 target_link_libraries(lulesh PRIVATE m)
 
-# Optional OpenMP support
-find_package(OpenMP)
-if(OpenMP_CXX_FOUND)
-    target_link_libraries(lulesh PRIVATE OpenMP::OpenMP_CXX)
-    message(STATUS "OpenMP found — enabling multi-threaded build")
-else()
-    message(STATUS "OpenMP not found — serial build")
-endif()
+# Kokkos (required — OpenMP backend on CPU)
+find_package(Kokkos 5.0 REQUIRED)
+target_link_libraries(lulesh PRIVATE Kokkos::kokkos)
+message(STATUS "Kokkos found — backend: ${Kokkos_DEVICES}")

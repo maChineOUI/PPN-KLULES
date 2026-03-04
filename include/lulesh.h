@@ -1,14 +1,11 @@
 #ifndef LULESH_H
 #define LULESH_H
 
-// OpenMP will be compiled in if this flag is set to 1 AND the compiler beging
-// used supports it (i.e. the _OPENMP symbol is defined)
-#define USE_OMP 1
-
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <vector>
+#include <Kokkos_Core.hpp>
 
 
 // Precision specification
@@ -99,95 +96,93 @@ class Domain {
 
    void AllocateNodePersistent(Int_t numNode) // Node-centered
    {
-      m_nodes.m_x.resize(numNode);  // coordinates
-      m_nodes.m_y.resize(numNode);
-      m_nodes.m_z.resize(numNode);
+      m_nodes.m_x = Kokkos::View<Real_t*>("x", numNode);  // coordinates
+      m_nodes.m_y = Kokkos::View<Real_t*>("y", numNode);
+      m_nodes.m_z = Kokkos::View<Real_t*>("z", numNode);
 
-      m_nodes.m_xd.resize(numNode); // velocities
-      m_nodes.m_yd.resize(numNode);
-      m_nodes.m_zd.resize(numNode);
+      m_nodes.m_xd = Kokkos::View<Real_t*>("xd", numNode); // velocities
+      m_nodes.m_yd = Kokkos::View<Real_t*>("yd", numNode);
+      m_nodes.m_zd = Kokkos::View<Real_t*>("zd", numNode);
 
-      m_nodes.m_xdd.resize(numNode); // accelerations
-      m_nodes.m_ydd.resize(numNode);
-      m_nodes.m_zdd.resize(numNode);
+      m_nodes.m_xdd = Kokkos::View<Real_t*>("xdd", numNode); // accelerations
+      m_nodes.m_ydd = Kokkos::View<Real_t*>("ydd", numNode);
+      m_nodes.m_zdd = Kokkos::View<Real_t*>("zdd", numNode);
 
-      m_nodes.m_fx.resize(numNode);  // forces
-      m_nodes.m_fy.resize(numNode);
-      m_nodes.m_fz.resize(numNode);
+      m_nodes.m_fx = Kokkos::View<Real_t*>("fx", numNode);  // forces
+      m_nodes.m_fy = Kokkos::View<Real_t*>("fy", numNode);
+      m_nodes.m_fz = Kokkos::View<Real_t*>("fz", numNode);
 
-      m_nodes.m_nodalMass.resize(numNode);  // mass
+      m_nodes.m_nodalMass = Kokkos::View<Real_t*>("nodalMass", numNode);  // mass
    }
 
    void AllocateElemPersistent(Int_t numElem) // Elem-centered
    {
-      m_conn.m_nodelist.resize(8*numElem);
+      m_conn.m_nodelist = Kokkos::View<Index_t*>("nodelist", 8*numElem);
 
       // elem connectivities through face
-      m_conn.m_lxim.resize(numElem);
-      m_conn.m_lxip.resize(numElem);
-      m_conn.m_letam.resize(numElem);
-      m_conn.m_letap.resize(numElem);
-      m_conn.m_lzetam.resize(numElem);
-      m_conn.m_lzetap.resize(numElem);
+      m_conn.m_lxim   = Kokkos::View<Index_t*>("lxim",   numElem);
+      m_conn.m_lxip   = Kokkos::View<Index_t*>("lxip",   numElem);
+      m_conn.m_letam  = Kokkos::View<Index_t*>("letam",  numElem);
+      m_conn.m_letap  = Kokkos::View<Index_t*>("letap",  numElem);
+      m_conn.m_lzetam = Kokkos::View<Index_t*>("lzetam", numElem);
+      m_conn.m_lzetap = Kokkos::View<Index_t*>("lzetap", numElem);
 
-      m_conn.m_elemBC.resize(numElem);
+      m_conn.m_elemBC = Kokkos::View<Int_t*>("elemBC", numElem);
 
-      m_elems.m_e.resize(numElem);
-      m_elems.m_p.resize(numElem);
+      m_elems.m_e  = Kokkos::View<Real_t*>("e",  numElem);
+      m_elems.m_p  = Kokkos::View<Real_t*>("p",  numElem);
 
-      m_elems.m_q.resize(numElem);
-      m_elems.m_ql.resize(numElem);
-      m_elems.m_qq.resize(numElem);
+      m_elems.m_q  = Kokkos::View<Real_t*>("q",  numElem);
+      m_elems.m_ql = Kokkos::View<Real_t*>("ql", numElem);
+      m_elems.m_qq = Kokkos::View<Real_t*>("qq", numElem);
 
-      m_elems.m_v.resize(numElem);
+      m_elems.m_v = Kokkos::View<Real_t*>("v", numElem);
 
-      m_elems.m_volo.resize(numElem);
-      m_elems.m_delv.resize(numElem);
-      m_elems.m_vdov.resize(numElem);
+      m_elems.m_volo  = Kokkos::View<Real_t*>("volo",  numElem);
+      m_elems.m_delv  = Kokkos::View<Real_t*>("delv",  numElem);
+      m_elems.m_vdov  = Kokkos::View<Real_t*>("vdov",  numElem);
 
-      m_elems.m_arealg.resize(numElem);
-
-      m_elems.m_ss.resize(numElem);
-
-      m_elems.m_elemMass.resize(numElem);
+      m_elems.m_arealg   = Kokkos::View<Real_t*>("arealg",   numElem);
+      m_elems.m_ss       = Kokkos::View<Real_t*>("ss",       numElem);
+      m_elems.m_elemMass = Kokkos::View<Real_t*>("elemMass", numElem);
    }
 
    void AllocateGradients(Int_t numElem, Int_t allElem)
    {
       // Position gradients
-      m_elems.m_delx_xi.resize(numElem) ;
-      m_elems.m_delx_eta.resize(numElem) ;
-      m_elems.m_delx_zeta.resize(numElem) ;
+      m_elems.m_delx_xi   = Kokkos::View<Real_t*>("delx_xi",   numElem);
+      m_elems.m_delx_eta  = Kokkos::View<Real_t*>("delx_eta",  numElem);
+      m_elems.m_delx_zeta = Kokkos::View<Real_t*>("delx_zeta", numElem);
 
       // Velocity gradients
-      m_elems.m_delv_xi.resize(allElem) ;
-      m_elems.m_delv_eta.resize(allElem);
-      m_elems.m_delv_zeta.resize(allElem) ;
+      m_elems.m_delv_xi   = Kokkos::View<Real_t*>("delv_xi",   allElem);
+      m_elems.m_delv_eta  = Kokkos::View<Real_t*>("delv_eta",  allElem);
+      m_elems.m_delv_zeta = Kokkos::View<Real_t*>("delv_zeta", allElem);
    }
 
    void DeallocateGradients()
    {
-      m_elems.m_delx_zeta.clear() ;
-      m_elems.m_delx_eta.clear() ;
-      m_elems.m_delx_xi.clear() ;
+      m_elems.m_delx_zeta = Kokkos::View<Real_t*>();
+      m_elems.m_delx_eta  = Kokkos::View<Real_t*>();
+      m_elems.m_delx_xi   = Kokkos::View<Real_t*>();
 
-      m_elems.m_delv_zeta.clear() ;
-      m_elems.m_delv_eta.clear() ;
-      m_elems.m_delv_xi.clear() ;
+      m_elems.m_delv_zeta = Kokkos::View<Real_t*>();
+      m_elems.m_delv_eta  = Kokkos::View<Real_t*>();
+      m_elems.m_delv_xi   = Kokkos::View<Real_t*>();
    }
 
    void AllocateStrains(Int_t numElem)
    {
-      m_elems.m_dxx.resize(numElem) ;
-      m_elems.m_dyy.resize(numElem) ;
-      m_elems.m_dzz.resize(numElem) ;
+      m_elems.m_dxx = Kokkos::View<Real_t*>("dxx", numElem);
+      m_elems.m_dyy = Kokkos::View<Real_t*>("dyy", numElem);
+      m_elems.m_dzz = Kokkos::View<Real_t*>("dzz", numElem);
    }
 
    void DeallocateStrains()
    {
-      m_elems.m_dzz.clear() ;
-      m_elems.m_dyy.clear() ;
-      m_elems.m_dxx.clear() ;
+      m_elems.m_dzz = Kokkos::View<Real_t*>();
+      m_elems.m_dyy = Kokkos::View<Real_t*>();
+      m_elems.m_dxx = Kokkos::View<Real_t*>();
    }
 
    //
@@ -223,9 +218,9 @@ class Domain {
    Index_t symmX(Index_t idx) { return m_nodes.m_symmX[idx] ; }
    Index_t symmY(Index_t idx) { return m_nodes.m_symmY[idx] ; }
    Index_t symmZ(Index_t idx) { return m_nodes.m_symmZ[idx] ; }
-   bool symmXempty()          { return m_nodes.m_symmX.empty(); }
-   bool symmYempty()          { return m_nodes.m_symmY.empty(); }
-   bool symmZempty()          { return m_nodes.m_symmZ.empty(); }
+   bool symmXempty()          { return m_nodes.m_symmX.extent(0) == 0; }
+   bool symmYempty()          { return m_nodes.m_symmY.extent(0) == 0; }
+   bool symmZempty()          { return m_nodes.m_symmZ.extent(0) == 0; }
 
    //
    // Element-centered
@@ -236,7 +231,7 @@ class Domain {
    Index_t*  regElemlist(Int_t r)    { return m_conn.m_regElemlist[r].data() ; }
    Index_t&  regElemlist(Int_t r, Index_t idx) { return m_conn.m_regElemlist[r][idx] ; }
 
-   Index_t*  nodelist(Index_t idx)    { return &m_conn.m_nodelist[Index_t(8)*idx] ; }
+   Index_t*  nodelist(Index_t idx)    { return m_conn.m_nodelist.data() + Index_t(8)*idx ; }
 
    // elem connectivities through face
    Index_t&  lxim(Index_t idx) { return m_conn.m_lxim[idx] ; }
@@ -301,7 +296,7 @@ class Domain {
    { return m_conn.m_nodeElemStart[idx+1] - m_conn.m_nodeElemStart[idx] ; }
 
    Index_t *nodeElemCornerList(Index_t idx)
-   { return &m_conn.m_nodeElemCornerList[m_conn.m_nodeElemStart[idx]] ; }
+   { return m_conn.m_nodeElemCornerList.data() + m_conn.m_nodeElemStart[idx] ; }
 
    // Parameters
 
@@ -375,40 +370,40 @@ class Domain {
 
    /* Node-centered arrays */
    struct NodeArrays {
-      std::vector<Real_t> m_x, m_y, m_z;        /* coordinates */
-      std::vector<Real_t> m_xd, m_yd, m_zd;     /* velocities */
-      std::vector<Real_t> m_xdd, m_ydd, m_zdd;  /* accelerations */
-      std::vector<Real_t> m_fx, m_fy, m_fz;     /* forces */
-      std::vector<Real_t> m_nodalMass;           /* mass */
-      std::vector<Index_t> m_symmX, m_symmY, m_symmZ; /* symmetry plane nodesets */
+      Kokkos::View<Real_t*> m_x, m_y, m_z;        /* coordinates */
+      Kokkos::View<Real_t*> m_xd, m_yd, m_zd;     /* velocities */
+      Kokkos::View<Real_t*> m_xdd, m_ydd, m_zdd;  /* accelerations */
+      Kokkos::View<Real_t*> m_fx, m_fy, m_fz;     /* forces */
+      Kokkos::View<Real_t*> m_nodalMass;           /* mass */
+      Kokkos::View<Index_t*> m_symmX, m_symmY, m_symmZ; /* symmetry plane nodesets */
    } m_nodes;
 
    /* Element connectivity */
    struct ElemConnectivity {
-      std::vector<Index_t> m_nodelist;           /* elemToNode connectivity */
-      std::vector<Index_t> m_lxim, m_lxip;      /* element connectivity across each face */
-      std::vector<Index_t> m_letam, m_letap;
-      std::vector<Index_t> m_lzetam, m_lzetap;
-      std::vector<Int_t>   m_elemBC;             /* symmetry/free-surface flags for each elem face */
-      std::vector<Index_t> m_regElemSize;        /* size of region sets */
-      std::vector<Index_t> m_regNumList;         /* region number per domain element */
-      std::vector<std::vector<Index_t>> m_regElemlist; /* region indexset */
-      std::vector<Index_t> m_nodeElemStart;      /* OMP: node-element index start */
-      std::vector<Index_t> m_nodeElemCornerList; /* OMP: node-element corner list */
+      Kokkos::View<Index_t*> m_nodelist;           /* elemToNode connectivity */
+      Kokkos::View<Index_t*> m_lxim, m_lxip;      /* element connectivity across each face */
+      Kokkos::View<Index_t*> m_letam, m_letap;
+      Kokkos::View<Index_t*> m_lzetam, m_lzetap;
+      Kokkos::View<Int_t*>   m_elemBC;             /* symmetry/free-surface flags for each elem face */
+      Kokkos::View<Index_t*> m_regElemSize;        /* size of region sets */
+      Kokkos::View<Index_t*> m_regNumList;         /* region number per domain element */
+      std::vector<std::vector<Index_t>> m_regElemlist; /* region indexset (jagged — keep as vector) */
+      Kokkos::View<Index_t*> m_nodeElemStart;      /* OMP: node-element index start */
+      Kokkos::View<Index_t*> m_nodeElemCornerList; /* OMP: node-element corner list */
    } m_conn;
 
    /* Element state arrays */
    struct ElemState {
-      std::vector<Real_t> m_dxx, m_dyy, m_dzz;  /* principal strains -- temporary */
-      std::vector<Real_t> m_delv_xi, m_delv_eta, m_delv_zeta; /* velocity gradient -- temporary */
-      std::vector<Real_t> m_delx_xi, m_delx_eta, m_delx_zeta; /* coordinate gradient -- temporary */
-      std::vector<Real_t> m_e;                   /* energy */
-      std::vector<Real_t> m_p;                   /* pressure */
-      std::vector<Real_t> m_q, m_ql, m_qq;      /* q, linear term, quadratic term */
-      std::vector<Real_t> m_v, m_volo, m_delv, m_vdov; /* relative/reference volume, derivatives */
-      std::vector<Real_t> m_arealg;              /* characteristic length of an element */
-      std::vector<Real_t> m_ss;                  /* "sound speed" */
-      std::vector<Real_t> m_elemMass;            /* mass */
+      Kokkos::View<Real_t*> m_dxx, m_dyy, m_dzz;  /* principal strains -- temporary */
+      Kokkos::View<Real_t*> m_delv_xi, m_delv_eta, m_delv_zeta; /* velocity gradient -- temporary */
+      Kokkos::View<Real_t*> m_delx_xi, m_delx_eta, m_delx_zeta; /* coordinate gradient -- temporary */
+      Kokkos::View<Real_t*> m_e;                   /* energy */
+      Kokkos::View<Real_t*> m_p;                   /* pressure */
+      Kokkos::View<Real_t*> m_q, m_ql, m_qq;      /* q, linear term, quadratic term */
+      Kokkos::View<Real_t*> m_v, m_volo, m_delv, m_vdov; /* relative/reference volume, derivatives */
+      Kokkos::View<Real_t*> m_arealg;              /* characteristic length of an element */
+      Kokkos::View<Real_t*> m_ss;                  /* "sound speed" */
+      Kokkos::View<Real_t*> m_elemMass;            /* mass */
    } m_elems;
 
    // Region scalars

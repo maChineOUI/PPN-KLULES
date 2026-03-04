@@ -1,9 +1,5 @@
 #include "lulesh-viscosity.h"
 
-#if _OPENMP
-# include <omp.h>
-#endif
-
 /******************************************/
 
 static inline
@@ -11,8 +7,8 @@ void CalcMonotonicQGradientsForElems(Domain& domain, Real_t vnew[])
 {
    Index_t numElem = domain.numElem();
 
-#pragma omp parallel for firstprivate(numElem)
-   for (Index_t i = 0 ; i < numElem ; ++i ) {
+   Kokkos::parallel_for("CalcMonotonicQGradientsForElems", numElem,
+                        [&](Index_t i) {
       const Real_t ptiny = Real_t(1.e-36) ;
       Real_t ax,ay,az ;
       Real_t dxv,dyv,dzv ;
@@ -149,7 +145,7 @@ void CalcMonotonicQGradientsForElems(Domain& domain, Real_t vnew[])
       dzv = Real_t(-0.25)*((zv0+zv1+zv5+zv4) - (zv3+zv2+zv6+zv7)) ;
 
       domain.delv_eta(i) = ax*dxv + ay*dyv + az*dzv ;
-   }
+   });
 }
 
 /******************************************/
@@ -162,9 +158,11 @@ void CalcMonotonicQRegionForElems(Domain &domain, Int_t r,
    Real_t monoq_max_slope = domain.monoq_max_slope();
    Real_t qlc_monoq = domain.qlc_monoq();
    Real_t qqc_monoq = domain.qqc_monoq();
+   Index_t regElemSize = domain.regElemSize(r);
 
-#pragma omp parallel for firstprivate(qlc_monoq, qqc_monoq, monoq_limiter_mult, monoq_max_slope, ptiny)
-   for ( Index_t ielem = 0 ; ielem < domain.regElemSize(r); ++ielem ) {
+   Kokkos::parallel_for("CalcMonotonicQRegionForElems",
+                        Kokkos::RangePolicy<>(0, regElemSize),
+                        [&](Index_t ielem) {
       Index_t i = domain.regElemlist(r,ielem);
       Real_t qlin, qquad ;
       Real_t phixi, phieta, phizeta ;
@@ -313,7 +311,7 @@ void CalcMonotonicQRegionForElems(Domain &domain, Int_t r,
 
       domain.qq(i) = qquad ;
       domain.ql(i) = qlin  ;
-   }
+   });
 }
 
 /******************************************/

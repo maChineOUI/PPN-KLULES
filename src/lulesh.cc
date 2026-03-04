@@ -156,10 +156,6 @@ Additional BSD Notice
 #include <iostream>
 #include <unistd.h>
 
-#if _OPENMP
-# include <omp.h>
-#endif
-
 #include "lulesh.h"
 #include "lulesh-timestep.h"
 #include "lulesh-integration.h"
@@ -170,6 +166,8 @@ Additional BSD Notice
 
 int main(int argc, char *argv[])
 {
+   Kokkos::initialize(argc, argv);
+   {
   Domain *locDom ;
    Int_t numRanks ;
    Int_t myRank ;
@@ -193,9 +191,7 @@ int main(int argc, char *argv[])
    if ((myRank == 0) && (opts.quiet == 0)) {
       printf("Running problem size %d^3 per domain until completion\n", opts.nx);
       printf("Num processors: %d\n", numRanks);
-#if _OPENMP
-      printf("Num threads: %d\n", omp_get_max_threads());
-#endif
+      printf("Num threads: %d\n", Kokkos::DefaultHostExecutionSpace().concurrency());
       printf("Total number of elements: %lld\n\n", (long long int)(numRanks*opts.nx*opts.nx*opts.nx));
       printf("To run other sizes, use -s <integer>.\n");
       printf("To run a fixed number of iterations, use -i <integer>.\n");
@@ -243,5 +239,8 @@ int main(int argc, char *argv[])
       VerifyAndWriteFinalOutput(elapsed_timeG, *locDom, opts.nx, numRanks);
    }
 
+   delete locDom;
+   } // end Kokkos scope
+   Kokkos::finalize();
    return 0 ;
 }

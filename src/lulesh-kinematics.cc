@@ -1,10 +1,6 @@
 #include "lulesh-kinematics.h"
 #include "lulesh-geometry.h"
 
-#if _OPENMP
-# include <omp.h>
-#endif
-
 /******************************************/
 
 static inline
@@ -75,11 +71,9 @@ void CalcElemVelocityGradient( const Real_t* const xvel,
 void CalcKinematicsForElems( Domain &domain, Real_t *vnew,
                              Real_t deltaTime, Index_t numElem )
 {
-
   // loop over all elements
-#pragma omp parallel for firstprivate(numElem, deltaTime)
-  for( Index_t k=0 ; k<numElem ; ++k )
-  {
+  Kokkos::parallel_for("CalcKinematicsForElems", numElem,
+                       [&](Index_t k) {
     Real_t B[3][8] ; /** shape function derivatives */
     Real_t D[6] ;
     Real_t x_local[8] ;
@@ -134,7 +128,7 @@ void CalcKinematicsForElems( Domain &domain, Real_t *vnew,
     domain.dxx(k) = D[0];
     domain.dyy(k) = D[1];
     domain.dzz(k) = D[2];
-  }
+  });
 }
 
 /******************************************/
@@ -150,9 +144,8 @@ void CalcLagrangeElements(Domain& domain, Real_t* vnew)
       CalcKinematicsForElems(domain, vnew, deltatime, numElem) ;
 
       // element loop to do some stuff not included in the elemlib function.
-#pragma omp parallel for firstprivate(numElem)
-      for ( Index_t k=0 ; k<numElem ; ++k )
-      {
+      Kokkos::parallel_for("CalcLagrangeElements", numElem,
+                           [&](Index_t k) {
          // calc strain rate and apply as constraint (only done in FB element)
          Real_t vdov = domain.dxx(k) + domain.dyy(k) + domain.dzz(k) ;
          Real_t vdovthird = vdov/Real_t(3.0) ;
@@ -168,7 +161,7 @@ void CalcLagrangeElements(Domain& domain, Real_t* vnew)
         {
            exit(VolumeError);
         }
-      }
+      });
       domain.DeallocateStrains();
    }
 }

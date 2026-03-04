@@ -1,7 +1,4 @@
 #include <cmath>
-#if _OPENMP
-#include <omp.h>
-#endif
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -59,7 +56,7 @@ Domain::Domain(Int_t numRanks, Index_t colLoc,
 
    m_numNode = edgeNodes*edgeNodes*edgeNodes ;
 
-   m_conn.m_regNumList.resize(numElem()) ;  // material indexset
+   m_conn.m_regNumList = Kokkos::View<Index_t*>("regNumList", numElem()) ;  // material indexset
 
    // Elem-centered 
    AllocateElemPersistent(numElem()) ;
@@ -100,9 +97,7 @@ Domain::Domain(Int_t numRanks, Index_t colLoc,
 
    BuildMesh(nx, edgeNodes, edgeElems);
 
-#if _OPENMP
    SetupThreadSupportStructures();
-#endif
 
    // Setup region index sets. For now, these are constant sized
    // throughout the run, but could be changed every cycle to 
@@ -235,11 +230,7 @@ Domain::BuildMesh(Int_t nx, Int_t edgeNodes, Int_t edgeElems)
 void
 Domain::SetupThreadSupportStructures()
 {
-#if _OPENMP
-   Index_t numthreads = omp_get_max_threads();
-#else
-   Index_t numthreads = 1;
-#endif
+   Index_t numthreads = Kokkos::DefaultHostExecutionSpace().concurrency();
 
   if (numthreads > 1) {
     // set up node-centered indexing of elements
@@ -252,7 +243,7 @@ Domain::SetupThreadSupportStructures()
       }
     }
 
-    m_conn.m_nodeElemStart.resize(numNode()+1) ;
+    m_conn.m_nodeElemStart = Kokkos::View<Index_t*>("nodeElemStart", numNode()+1) ;
 
     m_conn.m_nodeElemStart[0] = 0;
 
@@ -261,7 +252,7 @@ Domain::SetupThreadSupportStructures()
 	m_conn.m_nodeElemStart[i-1] + nodeElemCount[i-1] ;
     }
 
-    m_conn.m_nodeElemCornerList.resize(m_conn.m_nodeElemStart[numNode()]);
+    m_conn.m_nodeElemCornerList = Kokkos::View<Index_t*>("nodeElemCornerList", m_conn.m_nodeElemStart[numNode()]);
 
     for (Index_t i=0; i < numNode(); ++i) {
       nodeElemCount[i] = 0;
@@ -310,11 +301,11 @@ Domain::SetupCommBuffers(Int_t edgeNodes)
 
   // Boundary nodesets
   if (m_colLoc == 0)
-    m_nodes.m_symmX.resize(edgeNodes*edgeNodes);
+    m_nodes.m_symmX = Kokkos::View<Index_t*>("symmX", edgeNodes*edgeNodes);
   if (m_rowLoc == 0)
-    m_nodes.m_symmY.resize(edgeNodes*edgeNodes);
+    m_nodes.m_symmY = Kokkos::View<Index_t*>("symmY", edgeNodes*edgeNodes);
   if (m_planeLoc == 0)
-    m_nodes.m_symmZ.resize(edgeNodes*edgeNodes);
+    m_nodes.m_symmZ = Kokkos::View<Index_t*>("symmZ", edgeNodes*edgeNodes);
 }
 
 
@@ -325,7 +316,7 @@ Domain::CreateRegionIndexSets(Int_t nr, Int_t balance)
    srand(0);
    Index_t myRank = 0;
    this->numReg() = nr;
-   m_conn.m_regElemSize.resize(numReg());
+   m_conn.m_regElemSize = Kokkos::View<Index_t*>("regElemSize", numReg());
    m_conn.m_regElemlist.resize(numReg());
    Index_t nextIndex = 0;
    //if we only have one region just fill it
