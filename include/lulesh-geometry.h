@@ -1,10 +1,9 @@
-#ifndef LULESH_GEOMETRY_H
-#define LULESH_GEOMETRY_H
+#pragma once
 
 #include "lulesh.h"
 
 // 从 Domain 中提取单元的8个节点坐标
-void CollectDomainNodesToElemNodes(Domain &domain,
+void CollectDomainNodesToElemNodes(Domain& domain,
                                    const Index_t* elemToNode,
                                    Real_t elemX[8],
                                    Real_t elemY[8],
@@ -55,5 +54,3 @@ Real_t CalcElemCharacteristicLength(const Real_t x[8],
                                     const Real_t y[8],
                                     const Real_t z[8],
                                     const Real_t volume);
-
-#endif // LULESH_GEOMETRY_H

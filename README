@@ -1,8 +1,11 @@
-# LULESH 2.0 — Refactored Serial Build
+# LULESH 2.0 — 现代化重构版（Kokkos/OpenMP）
 
 LULESH（Livermore Unstructured Lagrangian Explicit Shock Hydrodynamics）是由
 Lawrence Livermore National Laboratory 开发的 HPC 代理应用，用于评估处理器和编程
-模型在拉格朗日流体力学计算上的性能。本版本在 LULESH 2.0 基础上进行了现代化重构。
+模型在拉格朗日流体力学计算上的性能。
+
+本版本在 LULESH 2.0 基础上进行了系统性现代化重构，并以 Kokkos 5（OpenMP 后端）
+替换原始 OpenMP pragma，通过内核融合大幅降低线程同步开销。
 
 原始项目：https://codesign.llnl.gov/lulesh.php
 
@@ -13,10 +16,12 @@ Lawrence Livermore National Laboratory 开发的 HPC 代理应用，用于评估
 | 项目 | 原版 LULESH 2.0 | 本版本 |
 |------|----------------|--------|
 | 构建系统 | Makefile | CMake 3.16+ |
-| MPI | 支持 | 已移除（纯串行） |
+| 并行模型 | OpenMP pragma / MPI+OpenMP | Kokkos 5（OpenMP 后端） |
+| MPI | 支持 | 已移除 |
 | 可视化 | Silo/VisIt（可选） | 已移除 |
-| 代码组织 | 4 个大文件 | 11 个单职责模块 |
+| 代码组织 | 4 个大文件（~2800 行） | 11 个单职责模块 |
 | C++ 标准 | C++11 | C++20 |
+| 内核同步 | ~94 barriers/step | ~67 barriers/step（融合后） |
 
 ---
 
@@ -26,8 +31,10 @@ Lawrence Livermore National Laboratory 开发的 HPC 代理应用，用于评估
 LULESH/
 ├── CMakeLists.txt
 ├── README
-├── include/              # 头文件
-│   ├── lulesh.h          # Domain 类、公共类型定义
+├── apps/
+│   └── lulesh_main.cc        # main()、Kokkos init/finalize、主循环
+├── include/                  # 公共头文件（模块接口）
+│   ├── lulesh.h              # Domain 类、公共类型、Kokkos::View 成员
 │   ├── lulesh-geometry.h
 │   ├── lulesh-stress.h
 │   ├── lulesh-nodal.h
@@ -38,8 +45,7 @@ LULESH/
 │   ├── lulesh-integration.h
 │   ├── lulesh-init.h
 │   └── lulesh-util.h
-├── src/                  # 源文件
-│   ├── lulesh.cc         # main()
+├── src/                      # 实现文件
 │   ├── lulesh-geometry.cc
 │   ├── lulesh-stress.cc
 │   ├── lulesh-nodal.cc
@@ -50,7 +56,13 @@ LULESH/
 │   ├── lulesh-integration.cc
 │   ├── lulesh-init.cc
 │   └── lulesh-util.cc
-└── build/                # 构建产物（cmake 生成，不进版本控制）
+├── scripts/
+│   ├── build.sh              # 一键构建（含 Kokkos/OpenMP 参数）
+│   └── run.sh                # 正确性验证 / 性能基准
+├── samples/                  # 采样分析输出示例
+├── tests/
+│   └── baselines/            # 正确性基准参考值
+└── build/                    # 构建产物（gitignore，cmake 生成）
 ```
 
 ---
@@ -59,40 +71,59 @@ LULESH/
 
 | 模块 | 功能 |
 |------|------|
-| `lulesh-geometry` | 形函数、体积/面积/特征长度计算 |
-| `lulesh-stress` | 应力积分、沙漏（Hourglass/FB）控制 |
-| `lulesh-nodal` | 力→加速度→速度→位置（节点运动学） |
-| `lulesh-kinematics` | 速度梯度、变形率张量 |
+| `lulesh-geometry` | 形函数、体积 / 面积 / 特征长度计算 |
+| `lulesh-stress` | 应力积分、沙漏（Flanagan-Belytschko）控制 |
+| `lulesh-nodal` | 力→加速度→速度→位置（节点运动学，速度与位移更新已融合） |
+| `lulesh-kinematics` | 速度梯度 + 变形率张量（已与 Lagrange 步骤融合为单一内核） |
 | `lulesh-viscosity` | 单调人工黏性 Q 计算 |
-| `lulesh-eos` | 物态方程（理想气体）、材料属性更新 |
-| `lulesh-timestep` | 时间步长控制（Courant 与水力学约束） |
+| `lulesh-eos` | 物态方程（理想气体）、材料属性更新、声速计算 |
+| `lulesh-timestep` | 时间步长控制（Courant 与水力学约束，双 reduce 融合） |
 | `lulesh-integration` | Leap-Frog 时间积分主循环 |
 | `lulesh-init` | 网格初始化、Domain 构造 |
-| `lulesh-util` | 命令行解析、结果输出 |
+| `lulesh-util` | 命令行解析、结果验证与输出 |
+
+---
+
+## 依赖
+
+| 工具 | 最低版本 | 说明 |
+|------|----------|------|
+| CMake | 3.16 | 构建系统 |
+| C++ 编译器 | Clang 13+ / GCC 11+ | 需支持 C++20 |
+| Kokkos | 5.0.2 | 并行抽象层（OpenMP 后端） |
+| OpenMP | 4.5+ | 线程并行运行时 |
 
 ---
 
 ## 构建
 
-### 依赖
-
-- CMake >= 3.16
-- C++20 兼容编译器（Clang 13+ / GCC 11+）
-
-### 编译
+### 快速构建（推荐）
 
 ```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build
+./scripts/build.sh              # Release，生成 build/release/lulesh2.0
+./scripts/build.sh RelWithDebInfo  # 带调试符号，生成 build/relwithdebinfo/lulesh2.0
 ```
 
-可执行文件位于 `build/lulesh2.0`。
-
-### 调试构建
+### 手动构建（macOS Apple Silicon）
 
 ```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Debug
-cmake --build build
+cmake -S . -B build/release \
+    -DCMAKE_PREFIX_PATH=/opt/homebrew/Cellar/kokkos/5.0.2 \
+    -DOpenMP_CXX_FLAGS="-Xpreprocessor -fopenmp -I/opt/homebrew/opt/libomp/include" \
+    -DOpenMP_CXX_LIB_NAMES="omp" \
+    -DOpenMP_omp_LIBRARY=/opt/homebrew/opt/libomp/lib/libomp.dylib \
+    -DCMAKE_BUILD_TYPE=Release
+
+cmake --build build/release -j$(sysctl -n hw.ncpu)
+```
+
+可执行文件位于 `build/release/lulesh2.0`。
+
+### Linux（Kokkos 系统安装）
+
+```bash
+cmake -S . -B build/release -DCMAKE_BUILD_TYPE=Release
+cmake --build build/release -j$(nproc)
 ```
 
 ---
@@ -100,12 +131,14 @@ cmake --build build
 ## 运行
 
 ```bash
-./build/lulesh2.0 [选项]
+OMP_PROC_BIND=close ./build/release/lulesh2.0 [选项]
 ```
+
+> `OMP_PROC_BIND=close` 将线程绑定到相邻核心，避免跨 NUMA 节点访问，对性能影响显著。
 
 | 选项 | 说明 | 默认值 |
 |------|------|--------|
-| `-s <N>` | 每个维度的网格边长 | 30 |
+| `-s <N>` | 每个维度的网格边长（总单元数 = N³） | 30 |
 | `-i <N>` | 最大迭代步数 | 9999999 |
 | `-r <N>` | 区域数量 | 11 |
 | `-b <N>` | 区域负载均衡系数 | 1 |
@@ -117,9 +150,55 @@ cmake --build build
 ### 正确性验证
 
 ```bash
-./build/lulesh2.0 -s 10 -i 50
+OMP_PROC_BIND=close ./build/release/lulesh2.0 -s 10 -i 50
 # 期望输出：Final Origin Energy = 8.104796e+04
 ```
+
+或使用脚本：
+
+```bash
+./scripts/run.sh verify
+```
+
+### 性能基准
+
+```bash
+./scripts/run.sh bench          # 等价于 -s 45 -i 200
+```
+
+---
+
+## 性能优化
+
+通过消除 Kokkos `parallel_for` / `parallel_reduce` 之间的同步屏障（barrier），
+在 Apple M 系列（OpenMP，macOS）上实测加速比：
+
+| | 原版 LULESH 2.0 | 第一轮优化（Opt-1~3） | 第二轮优化（Opt-4~9） |
+|---|---|---|---|
+| 耗时（-s 45 -i 200） | 7.10 s | 3.65 s | **3.30 s** |
+| FOM（z/s） | 2572 | 5498 | **5518** |
+| 加速比 | 1.00× | 2.14× | **2.15×** |
+
+### 主要优化内容
+
+**第一轮**
+
+| 优化 | 位置 | 效果 |
+|------|------|------|
+| Opt-1：沙漏（Hourglass）内核融合 | `lulesh-stress.cc` | −1 barrier，−6 全局临时向量 |
+| Opt-2：EvalEOS 准备阶段 5→1 | `lulesh-eos.cc` | −4 barriers/rep/region |
+| Opt-3：CalcEnergyForElems 11→1 | `lulesh-eos.cc` | −10 barriers/rep，−1 向量 |
+
+**第二轮**
+
+| 优化 | 位置 | 效果 |
+|------|------|------|
+| Opt-4：速度 + 位置更新融合 | `lulesh-nodal.cc` | −1 barrier |
+| Opt-5：Courant + Hydro 双 reduce 融合 | `lulesh-timestep.cc` | −11 barriers/step |
+| Opt-6：scatter + 声速计算融合 | `lulesh-eos.cc` | −11 barriers/step |
+| Opt-7：ApplyMaterial 3→1 内核 | `lulesh-eos.cc` | −2 barriers |
+| Opt-8：InitStress 内联 | `lulesh-stress.cc` | −1 barrier，−3 向量 |
+| Opt-9：运动学 + Lagrange 步骤融合 | `lulesh-kinematics.cc` | −1 barrier |
 
 ---
 

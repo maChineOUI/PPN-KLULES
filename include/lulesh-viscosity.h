@@ -1,8 +1,5 @@
-#ifndef LULESH_VISCOSITY_H
-#define LULESH_VISCOSITY_H
+#pragma once
 
 #include "lulesh.h"
 
-void CalcQForElems(Domain& domain, Real_t vnew[]);
-
-#endif // LULESH_VISCOSITY_H
+void CalcQForElems(Domain& domain, Real_t* vnew);

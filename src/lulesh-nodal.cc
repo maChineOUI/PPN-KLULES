@@ -20,7 +20,7 @@ static inline void CalcForceForNodes(Domain& domain)
 /******************************************/
 
 static inline
-void CalcAccelerationForNodes(Domain &domain, Index_t numNode)
+void CalcAccelerationForNodes(Domain& domain, Index_t numNode)
 {
   Kokkos::parallel_for("CalcAccelerationForNodes", numNode, [&](Index_t i) {
      domain.xdd(i) = domain.fx(i) / domain.nodalMass(i);
@@ -57,35 +57,27 @@ void ApplyAccelerationBoundaryConditionsForNodes(Domain& domain)
 /******************************************/
 
 static inline
-void CalcVelocityForNodes(Domain &domain, const Real_t dt, const Real_t u_cut,
-                          Index_t numNode)
+void CalcVelocityAndPositionForNodes(Domain& domain, const Real_t dt,
+                                     const Real_t u_cut, Index_t numNode)
 {
-  Kokkos::parallel_for("CalcVelocityForNodes", numNode, [&](Index_t i) {
-     Real_t xdtmp, ydtmp, zdtmp ;
-
-     xdtmp = domain.xd(i) + domain.xdd(i) * dt ;
-     if( std::fabs(xdtmp) < u_cut ) xdtmp = Real_t(0.0);
+  /* Fused: velocity update then position update per node.
+     CalcPosition reads xd[i] written by CalcVelocity — no cross-node dependency. */
+  Kokkos::parallel_for("CalcVelocityAndPositionForNodes", numNode, [&](Index_t i) {
+     Real_t xdtmp = domain.xd(i) + domain.xdd(i) * dt ;
+     if (std::fabs(xdtmp) < u_cut) xdtmp = Real_t(0.0) ;
      domain.xd(i) = xdtmp ;
 
-     ydtmp = domain.yd(i) + domain.ydd(i) * dt ;
-     if( std::fabs(ydtmp) < u_cut ) ydtmp = Real_t(0.0);
+     Real_t ydtmp = domain.yd(i) + domain.ydd(i) * dt ;
+     if (std::fabs(ydtmp) < u_cut) ydtmp = Real_t(0.0) ;
      domain.yd(i) = ydtmp ;
 
-     zdtmp = domain.zd(i) + domain.zdd(i) * dt ;
-     if( std::fabs(zdtmp) < u_cut ) zdtmp = Real_t(0.0);
+     Real_t zdtmp = domain.zd(i) + domain.zdd(i) * dt ;
+     if (std::fabs(zdtmp) < u_cut) zdtmp = Real_t(0.0) ;
      domain.zd(i) = zdtmp ;
-  });
-}
 
-/******************************************/
-
-static inline
-void CalcPositionForNodes(Domain &domain, const Real_t dt, Index_t numNode)
-{
-  Kokkos::parallel_for("CalcPositionForNodes", numNode, [&](Index_t i) {
-     domain.x(i) += domain.xd(i) * dt ;
-     domain.y(i) += domain.yd(i) * dt ;
-     domain.z(i) += domain.zd(i) * dt ;
+     domain.x(i) += xdtmp * dt ;
+     domain.y(i) += ydtmp * dt ;
+     domain.z(i) += zdtmp * dt ;
   });
 }
 
@@ -104,9 +96,7 @@ void LagrangeNodal(Domain& domain)
 
    ApplyAccelerationBoundaryConditionsForNodes(domain);
 
-   CalcVelocityForNodes( domain, delt, u_cut, domain.numNode()) ;
-
-   CalcPositionForNodes( domain, delt, domain.numNode() );
+   CalcVelocityAndPositionForNodes(domain, delt, u_cut, domain.numNode()) ;
 
   return;
 }

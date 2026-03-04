@@ -11,7 +11,7 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 set(SOURCES
-    src/lulesh.cc
+    apps/lulesh_main.cc
     src/lulesh-geometry.cc
     src/lulesh-stress.cc
     src/lulesh-nodal.cc

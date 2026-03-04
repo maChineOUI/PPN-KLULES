@@ -1,5 +1,4 @@
-#ifndef LULESH_H
-#define LULESH_H
+#pragma once
 
 #include <algorithm>
 #include <cmath>
@@ -51,13 +50,6 @@ constexpr Int_t ZETA_P_SYMM = 0x08000;
 constexpr Int_t ZETA_P_FREE = 0x10000;
 constexpr Int_t ZETA_P_COMM = 0x20000;
 
-// Assume 128 byte coherence
-// Assume Real_t is an "integral power of 2" bytes wide
-#define CACHE_COHERENCE_PAD_REAL (128 / sizeof(Real_t))
-
-#define CACHE_ALIGN_REAL(n) \
-   (((n) + (CACHE_COHERENCE_PAD_REAL - 1)) & ~(CACHE_COHERENCE_PAD_REAL-1))
-
 //////////////////////////////////////////////////////
 // Primary data structure
 //////////////////////////////////////////////////////
@@ -90,63 +82,7 @@ class Domain {
           Index_t rowLoc, Index_t planeLoc,
           Index_t nx, Int_t tp, Int_t nr, Int_t balance, Int_t cost);
 
-   //
-   // ALLOCATION
-   //
-
-   void AllocateNodePersistent(Int_t numNode) // Node-centered
-   {
-      m_nodes.m_x = Kokkos::View<Real_t*>("x", numNode);  // coordinates
-      m_nodes.m_y = Kokkos::View<Real_t*>("y", numNode);
-      m_nodes.m_z = Kokkos::View<Real_t*>("z", numNode);
-
-      m_nodes.m_xd = Kokkos::View<Real_t*>("xd", numNode); // velocities
-      m_nodes.m_yd = Kokkos::View<Real_t*>("yd", numNode);
-      m_nodes.m_zd = Kokkos::View<Real_t*>("zd", numNode);
-
-      m_nodes.m_xdd = Kokkos::View<Real_t*>("xdd", numNode); // accelerations
-      m_nodes.m_ydd = Kokkos::View<Real_t*>("ydd", numNode);
-      m_nodes.m_zdd = Kokkos::View<Real_t*>("zdd", numNode);
-
-      m_nodes.m_fx = Kokkos::View<Real_t*>("fx", numNode);  // forces
-      m_nodes.m_fy = Kokkos::View<Real_t*>("fy", numNode);
-      m_nodes.m_fz = Kokkos::View<Real_t*>("fz", numNode);
-
-      m_nodes.m_nodalMass = Kokkos::View<Real_t*>("nodalMass", numNode);  // mass
-   }
-
-   void AllocateElemPersistent(Int_t numElem) // Elem-centered
-   {
-      m_conn.m_nodelist = Kokkos::View<Index_t*>("nodelist", 8*numElem);
-
-      // elem connectivities through face
-      m_conn.m_lxim   = Kokkos::View<Index_t*>("lxim",   numElem);
-      m_conn.m_lxip   = Kokkos::View<Index_t*>("lxip",   numElem);
-      m_conn.m_letam  = Kokkos::View<Index_t*>("letam",  numElem);
-      m_conn.m_letap  = Kokkos::View<Index_t*>("letap",  numElem);
-      m_conn.m_lzetam = Kokkos::View<Index_t*>("lzetam", numElem);
-      m_conn.m_lzetap = Kokkos::View<Index_t*>("lzetap", numElem);
-
-      m_conn.m_elemBC = Kokkos::View<Int_t*>("elemBC", numElem);
-
-      m_elems.m_e  = Kokkos::View<Real_t*>("e",  numElem);
-      m_elems.m_p  = Kokkos::View<Real_t*>("p",  numElem);
-
-      m_elems.m_q  = Kokkos::View<Real_t*>("q",  numElem);
-      m_elems.m_ql = Kokkos::View<Real_t*>("ql", numElem);
-      m_elems.m_qq = Kokkos::View<Real_t*>("qq", numElem);
-
-      m_elems.m_v = Kokkos::View<Real_t*>("v", numElem);
-
-      m_elems.m_volo  = Kokkos::View<Real_t*>("volo",  numElem);
-      m_elems.m_delv  = Kokkos::View<Real_t*>("delv",  numElem);
-      m_elems.m_vdov  = Kokkos::View<Real_t*>("vdov",  numElem);
-
-      m_elems.m_arealg   = Kokkos::View<Real_t*>("arealg",   numElem);
-      m_elems.m_ss       = Kokkos::View<Real_t*>("ss",       numElem);
-      m_elems.m_elemMass = Kokkos::View<Real_t*>("elemMass", numElem);
-   }
-
+   // Temporary field allocation (called from kinematics/viscosity modules)
    void AllocateGradients(Int_t numElem, Int_t allElem)
    {
       // Position gradients
@@ -351,10 +287,64 @@ class Domain {
    Index_t&  numElem()            { return m_numElem ; }
    Index_t&  numNode()            { return m_numNode ; }
 
-   Index_t&  maxPlaneSize()       { return m_maxPlaneSize ; }
-   Index_t&  maxEdgeSize()        { return m_maxEdgeSize ; }
-
    private:
+
+   //
+   // ALLOCATION (called only from Domain constructor in lulesh-init.cc)
+   //
+
+   void AllocateNodePersistent(Int_t numNode) // Node-centered
+   {
+      m_nodes.m_x = Kokkos::View<Real_t*>("x", numNode);  // coordinates
+      m_nodes.m_y = Kokkos::View<Real_t*>("y", numNode);
+      m_nodes.m_z = Kokkos::View<Real_t*>("z", numNode);
+
+      m_nodes.m_xd = Kokkos::View<Real_t*>("xd", numNode); // velocities
+      m_nodes.m_yd = Kokkos::View<Real_t*>("yd", numNode);
+      m_nodes.m_zd = Kokkos::View<Real_t*>("zd", numNode);
+
+      m_nodes.m_xdd = Kokkos::View<Real_t*>("xdd", numNode); // accelerations
+      m_nodes.m_ydd = Kokkos::View<Real_t*>("ydd", numNode);
+      m_nodes.m_zdd = Kokkos::View<Real_t*>("zdd", numNode);
+
+      m_nodes.m_fx = Kokkos::View<Real_t*>("fx", numNode);  // forces
+      m_nodes.m_fy = Kokkos::View<Real_t*>("fy", numNode);
+      m_nodes.m_fz = Kokkos::View<Real_t*>("fz", numNode);
+
+      m_nodes.m_nodalMass = Kokkos::View<Real_t*>("nodalMass", numNode);  // mass
+   }
+
+   void AllocateElemPersistent(Int_t numElem) // Elem-centered
+   {
+      m_conn.m_nodelist = Kokkos::View<Index_t*>("nodelist", 8*numElem);
+
+      // elem connectivities through face
+      m_conn.m_lxim   = Kokkos::View<Index_t*>("lxim",   numElem);
+      m_conn.m_lxip   = Kokkos::View<Index_t*>("lxip",   numElem);
+      m_conn.m_letam  = Kokkos::View<Index_t*>("letam",  numElem);
+      m_conn.m_letap  = Kokkos::View<Index_t*>("letap",  numElem);
+      m_conn.m_lzetam = Kokkos::View<Index_t*>("lzetam", numElem);
+      m_conn.m_lzetap = Kokkos::View<Index_t*>("lzetap", numElem);
+
+      m_conn.m_elemBC = Kokkos::View<Int_t*>("elemBC", numElem);
+
+      m_elems.m_e  = Kokkos::View<Real_t*>("e",  numElem);
+      m_elems.m_p  = Kokkos::View<Real_t*>("p",  numElem);
+
+      m_elems.m_q  = Kokkos::View<Real_t*>("q",  numElem);
+      m_elems.m_ql = Kokkos::View<Real_t*>("ql", numElem);
+      m_elems.m_qq = Kokkos::View<Real_t*>("qq", numElem);
+
+      m_elems.m_v = Kokkos::View<Real_t*>("v", numElem);
+
+      m_elems.m_volo  = Kokkos::View<Real_t*>("volo",  numElem);
+      m_elems.m_delv  = Kokkos::View<Real_t*>("delv",  numElem);
+      m_elems.m_vdov  = Kokkos::View<Real_t*>("vdov",  numElem);
+
+      m_elems.m_arealg   = Kokkos::View<Real_t*>("arealg",   numElem);
+      m_elems.m_ss       = Kokkos::View<Real_t*>("ss",       numElem);
+      m_elems.m_elemMass = Kokkos::View<Real_t*>("elemMass", numElem);
+   }
 
    void BuildMesh(Int_t nx, Int_t edgeNodes, Int_t edgeElems);
    void SetupThreadSupportStructures();
@@ -460,9 +450,6 @@ class Domain {
    Index_t m_numElem ;
    Index_t m_numNode ;
 
-   Index_t m_maxPlaneSize ;
-   Index_t m_maxEdgeSize ;
-
    // Used in setup
    Index_t m_rowMin, m_rowMax;
    Index_t m_colMin, m_colMax;
@@ -470,18 +457,4 @@ class Domain {
 
 } ;
 
-struct cmdLineOpts {
-   Int_t its; // -i
-   Int_t nx;  // -s
-   Int_t numReg; // -r
-   Int_t numFiles; // -f
-   Int_t showProg; // -p
-   Int_t quiet; // -q
-   Int_t cost; // -c
-   Int_t balance; // -b
-};
 
-
-
-
-#endif // LULESH_H

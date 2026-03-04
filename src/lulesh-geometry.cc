@@ -2,7 +2,7 @@
 
 /******************************************/
 
-void CollectDomainNodesToElemNodes(Domain &domain,
+void CollectDomainNodesToElemNodes(Domain& domain,
                                    const Index_t* elemToNode,
                                    Real_t elemX[8],
                                    Real_t elemY[8],

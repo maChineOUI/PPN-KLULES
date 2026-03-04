@@ -68,71 +68,6 @@ void CalcElemVelocityGradient( const Real_t* const xvel,
 
 /******************************************/
 
-void CalcKinematicsForElems( Domain &domain, Real_t *vnew,
-                             Real_t deltaTime, Index_t numElem )
-{
-  // loop over all elements
-  Kokkos::parallel_for("CalcKinematicsForElems", numElem,
-                       [&](Index_t k) {
-    Real_t B[3][8] ; /** shape function derivatives */
-    Real_t D[6] ;
-    Real_t x_local[8] ;
-    Real_t y_local[8] ;
-    Real_t z_local[8] ;
-    Real_t xd_local[8] ;
-    Real_t yd_local[8] ;
-    Real_t zd_local[8] ;
-    Real_t detJ = Real_t(0.0) ;
-
-    Real_t volume ;
-    Real_t relativeVolume ;
-    const Index_t* const elemToNode = domain.nodelist(k) ;
-
-    // get nodal coordinates from global arrays and copy into local arrays.
-    CollectDomainNodesToElemNodes(domain, elemToNode, x_local, y_local, z_local);
-
-    // volume calculations
-    volume = CalcElemVolume(x_local, y_local, z_local );
-    relativeVolume = volume / domain.volo(k) ;
-    vnew[k] = relativeVolume ;
-    domain.delv(k) = relativeVolume - domain.v(k) ;
-
-    // set characteristic length
-    domain.arealg(k) = CalcElemCharacteristicLength(x_local, y_local, z_local,
-                                             volume);
-
-    // get nodal velocities from global array and copy into local arrays.
-    for( Index_t lnode=0 ; lnode<8 ; ++lnode )
-    {
-      Index_t gnode = elemToNode[lnode];
-      xd_local[lnode] = domain.xd(gnode);
-      yd_local[lnode] = domain.yd(gnode);
-      zd_local[lnode] = domain.zd(gnode);
-    }
-
-    Real_t dt2 = Real_t(0.5) * deltaTime;
-    for ( Index_t j=0 ; j<8 ; ++j )
-    {
-       x_local[j] -= dt2 * xd_local[j];
-       y_local[j] -= dt2 * yd_local[j];
-       z_local[j] -= dt2 * zd_local[j];
-    }
-
-    CalcElemShapeFunctionDerivatives( x_local, y_local, z_local,
-                                      B, &detJ );
-
-    CalcElemVelocityGradient( xd_local, yd_local, zd_local,
-                               B, detJ, D );
-
-    // put velocity gradient quantities into their global arrays.
-    domain.dxx(k) = D[0];
-    domain.dyy(k) = D[1];
-    domain.dzz(k) = D[2];
-  });
-}
-
-/******************************************/
-
 void CalcLagrangeElements(Domain& domain, Real_t* vnew)
 {
    Index_t numElem = domain.numElem() ;
@@ -141,27 +76,57 @@ void CalcLagrangeElements(Domain& domain, Real_t* vnew)
 
       domain.AllocateStrains(numElem);
 
-      CalcKinematicsForElems(domain, vnew, deltatime, numElem) ;
-
-      // element loop to do some stuff not included in the elemlib function.
-      Kokkos::parallel_for("CalcLagrangeElements", numElem,
+      /* Opt-9: Fused kinematics + Lagrange — D[0]/D[1]/D[2] stay as stack
+         scalars, eliminating the intermediate write/read of domain.dxx/dyy/dzz
+         and the barrier between the two former parallel_for kernels. */
+      Kokkos::parallel_for("CalcKinematicsAndLagrange", numElem,
                            [&](Index_t k) {
-         // calc strain rate and apply as constraint (only done in FB element)
-         Real_t vdov = domain.dxx(k) + domain.dyy(k) + domain.dzz(k) ;
-         Real_t vdovthird = vdov/Real_t(3.0) ;
+         Real_t B[3][8] ;
+         Real_t D[6] ;
+         Real_t x_local[8], y_local[8], z_local[8] ;
+         Real_t xd_local[8], yd_local[8], zd_local[8] ;
+         Real_t detJ = Real_t(0.0) ;
 
-         // make the rate of deformation tensor deviatoric
+         const Index_t* const elemToNode = domain.nodelist(k) ;
+
+         CollectDomainNodesToElemNodes(domain, elemToNode, x_local, y_local, z_local);
+
+         Real_t volume = CalcElemVolume(x_local, y_local, z_local) ;
+         Real_t relativeVolume = volume / domain.volo(k) ;
+         vnew[k] = relativeVolume ;
+         domain.delv(k) = relativeVolume - domain.v(k) ;
+
+         domain.arealg(k) = CalcElemCharacteristicLength(x_local, y_local, z_local, volume) ;
+
+         for (Index_t lnode=0 ; lnode<8 ; ++lnode) {
+            Index_t gnode = elemToNode[lnode] ;
+            xd_local[lnode] = domain.xd(gnode) ;
+            yd_local[lnode] = domain.yd(gnode) ;
+            zd_local[lnode] = domain.zd(gnode) ;
+         }
+
+         Real_t dt2 = Real_t(0.5) * deltatime ;
+         for (Index_t j=0 ; j<8 ; ++j) {
+            x_local[j] -= dt2 * xd_local[j] ;
+            y_local[j] -= dt2 * yd_local[j] ;
+            z_local[j] -= dt2 * zd_local[j] ;
+         }
+
+         CalcElemShapeFunctionDerivatives(x_local, y_local, z_local, B, &detJ) ;
+         CalcElemVelocityGradient(xd_local, yd_local, zd_local, B, detJ, D) ;
+
+         // Lagrange part: vdov + deviatoric strain
+         Real_t vdov      = D[0] + D[1] + D[2] ;
+         Real_t vdovthird = vdov / Real_t(3.0) ;
          domain.vdov(k) = vdov ;
-         domain.dxx(k) -= vdovthird ;
-         domain.dyy(k) -= vdovthird ;
-         domain.dzz(k) -= vdovthird ;
+         domain.dxx(k)  = D[0] - vdovthird ;
+         domain.dyy(k)  = D[1] - vdovthird ;
+         domain.dzz(k)  = D[2] - vdovthird ;
 
-        // See if any volumes are negative, and take appropriate action.
          if (vnew[k] <= Real_t(0.0))
-        {
-           exit(VolumeError);
-        }
+            exit(VolumeError) ;
       });
+
       domain.DeallocateStrains();
    }
 }

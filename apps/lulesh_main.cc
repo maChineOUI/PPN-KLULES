@@ -144,17 +144,8 @@ Additional BSD Notice
 
 */
 
-#include <climits>
-#include <vector>
-#include <cmath>
 #include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <cctype>
-#include <ctime>
 #include <sys/time.h>
-#include <iostream>
-#include <unistd.h>
 
 #include "lulesh.h"
 #include "lulesh-timestep.h"
@@ -213,9 +204,6 @@ int main(int argc, char *argv[])
    // BEGIN timestep to solution */
    timeval start;
    gettimeofday(&start, nullptr) ;
-//debug to see region sizes
-//   for(Int_t i = 0; i < locDom->numReg(); i++)
-//      std::cout << "region" << i + 1<< "size" << locDom->regElemSize(i) <<std::endl;
    while((locDom->time() < locDom->stoptime()) && (locDom->cycle() < opts.its)) {
 
       TimeIncrement(*locDom) ;

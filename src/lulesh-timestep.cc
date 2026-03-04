@@ -55,94 +55,48 @@ void TimeIncrement(Domain& domain)
 
 /******************************************/
 
-static inline
-void CalcCourantConstraintForElems(Domain &domain, Index_t length,
-                                   Index_t *regElemlist,
-                                   Real_t qqc, Real_t& dtcourant)
-{
-   const Real_t qqc2 = Real_t(64.0) * qqc * qqc ;
-
-   using minloc_t = Kokkos::MinLoc<Real_t, Index_t> ;
-   typename minloc_t::value_type result ;
-
-   Kokkos::parallel_reduce("CalcCourantConstraintForElems", length,
-      [&](Index_t i, typename minloc_t::value_type& upd) {
-         Index_t indx = regElemlist[i] ;
-
-         if (domain.vdov(indx) != Real_t(0.)) {
-            Real_t dtf = domain.ss(indx) * domain.ss(indx) ;
-
-            if (domain.vdov(indx) < Real_t(0.)) {
-               dtf += qqc2 * domain.arealg(indx) * domain.arealg(indx)
-                           * domain.vdov(indx) * domain.vdov(indx) ;
-            }
-
-            dtf = std::sqrt(dtf) ;
-            dtf = domain.arealg(indx) / dtf ;
-
-            if (dtf < upd.val) {
-               upd.val = dtf ;
-               upd.loc = indx ;
-            }
-         }
-      },
-      minloc_t(result)
-   );
-
-   if (result.val < dtcourant) {
-      dtcourant = result.val ;
-   }
-}
-
-/******************************************/
-
-static inline
-void CalcHydroConstraintForElems(Domain &domain, Index_t length,
-                                 Index_t *regElemlist, Real_t dvovmax, Real_t& dthydro)
-{
-   using minloc_t = Kokkos::MinLoc<Real_t, Index_t> ;
-   typename minloc_t::value_type result ;
-
-   Kokkos::parallel_reduce("CalcHydroConstraintForElems", length,
-      [&](Index_t i, typename minloc_t::value_type& upd) {
-         Index_t indx = regElemlist[i] ;
-
-         if (domain.vdov(indx) != Real_t(0.)) {
-            Real_t dtdvov = dvovmax / (std::fabs(domain.vdov(indx)) + Real_t(1.e-20)) ;
-
-            if (dtdvov < upd.val) {
-               upd.val = dtdvov ;
-               upd.loc = indx ;
-            }
-         }
-      },
-      minloc_t(result)
-   );
-
-   if (result.val < dthydro) {
-      dthydro = result.val ;
-   }
-}
-
-/******************************************/
-
 void CalcTimeConstraintsForElems(Domain& domain) {
+
+   /* Fused: Courant + Hydro constraints combined into a single dual-Min
+      parallel_reduce per region.  Neither reduction uses result.loc, so
+      Kokkos::Min<Real_t> replaces MinLoc, and Kokkos 5 variadic reducers
+      eliminate the second parallel_reduce barrier per region. */
+
+   const Real_t qqc2    = Real_t(64.0) * domain.qqc() * domain.qqc() ;
+   const Real_t dvovmax = domain.dvovmax() ;
 
    // Initialize conditions to a very large value
    domain.dtcourant() = 1.0e+20;
-   domain.dthydro() = 1.0e+20;
+   domain.dthydro()   = 1.0e+20;
 
    for (Index_t r=0 ; r < domain.numReg() ; ++r) {
-      /* evaluate time constraint */
-      CalcCourantConstraintForElems(domain, domain.regElemSize(r),
-                                    domain.regElemlist(r),
-                                    domain.qqc(),
-                                    domain.dtcourant()) ;
+      Index_t  length     = domain.regElemSize(r) ;
+      Index_t *regElemlist = domain.regElemlist(r) ;
 
-      /* check hydro constraint */
-      CalcHydroConstraintForElems(domain, domain.regElemSize(r),
-                                  domain.regElemlist(r),
-                                  domain.dvovmax(),
-                                  domain.dthydro()) ;
+      Real_t dtc = Real_t(1.0e+20) ;
+      Real_t dth = Real_t(1.0e+20) ;
+
+      Kokkos::parallel_reduce("CalcTimeConstraintsForElems", length,
+         [&](Index_t i, Real_t& lc, Real_t& lh) {
+            Index_t indx = regElemlist[i] ;
+            if (domain.vdov(indx) != Real_t(0.)) {
+               // Courant constraint
+               Real_t dtf = domain.ss(indx) * domain.ss(indx) ;
+               if (domain.vdov(indx) < Real_t(0.))
+                  dtf += qqc2 * domain.arealg(indx) * domain.arealg(indx)
+                              * domain.vdov(indx) * domain.vdov(indx) ;
+               dtf = domain.arealg(indx) / std::sqrt(dtf) ;
+               if (dtf < lc) lc = dtf ;
+               // Hydro constraint
+               Real_t dtdvov = dvovmax / (std::fabs(domain.vdov(indx)) + Real_t(1.e-20)) ;
+               if (dtdvov < lh) lh = dtdvov ;
+            }
+         },
+         Kokkos::Min<Real_t>(dtc),
+         Kokkos::Min<Real_t>(dth)
+      ) ;
+
+      if (dtc < domain.dtcourant()) domain.dtcourant() = dtc ;
+      if (dth < domain.dthydro())   domain.dthydro()   = dth ;
    }
 }

@@ -1,8 +1,5 @@
-#ifndef LULESH_INTEGRATION_H
-#define LULESH_INTEGRATION_H
+#pragma once
 
 #include "lulesh.h"
 
 void LagrangeLeapFrog(Domain& domain);
-
-#endif // LULESH_INTEGRATION_H

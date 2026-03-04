@@ -3,7 +3,7 @@
 /******************************************/
 
 static inline
-void CalcMonotonicQGradientsForElems(Domain& domain, Real_t vnew[])
+void CalcMonotonicQGradientsForElems(Domain& domain, Real_t* vnew)
 {
    Index_t numElem = domain.numElem();
 
@@ -151,8 +151,8 @@ void CalcMonotonicQGradientsForElems(Domain& domain, Real_t vnew[])
 /******************************************/
 
 static inline
-void CalcMonotonicQRegionForElems(Domain &domain, Int_t r,
-                                  Real_t vnew[], Real_t ptiny)
+void CalcMonotonicQRegionForElems(Domain& domain, Int_t r,
+                                  Real_t* vnew, Real_t ptiny)
 {
    Real_t monoq_limiter_mult = domain.monoq_limiter_mult();
    Real_t monoq_max_slope = domain.monoq_max_slope();
@@ -317,7 +317,7 @@ void CalcMonotonicQRegionForElems(Domain &domain, Int_t r,
 /******************************************/
 
 static inline
-void CalcMonotonicQForElems(Domain& domain, Real_t vnew[])
+void CalcMonotonicQForElems(Domain& domain, Real_t* vnew)
 {
    //
    // initialize parameters
@@ -337,7 +337,7 @@ void CalcMonotonicQForElems(Domain& domain, Real_t vnew[])
 
 /******************************************/
 
-void CalcQForElems(Domain& domain, Real_t vnew[])
+void CalcQForElems(Domain& domain, Real_t* vnew)
 {
    //
    // MONOTONIC Q option

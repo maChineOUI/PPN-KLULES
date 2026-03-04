@@ -3,40 +3,6 @@
 /******************************************/
 
 static inline
-void CalcPressureForElems(Real_t* p_new, Real_t* bvc,
-                          Real_t* pbvc, Real_t* e_old,
-                          Real_t* compression, Real_t *vnewc,
-                          Real_t pmin,
-                          Real_t p_cut, Real_t eosvmax,
-                          Index_t length, Index_t *regElemList)
-{
-   Kokkos::parallel_for("CalcPressureForElems_bvc", length,
-                        [&](Index_t i) {
-      Real_t c1s = Real_t(2.0)/Real_t(3.0) ;
-      bvc[i] = c1s * (compression[i] + Real_t(1.));
-      pbvc[i] = c1s;
-   });
-
-   Kokkos::parallel_for("CalcPressureForElems_p", length,
-                        [&](Index_t i) {
-      Index_t elem = regElemList[i];
-
-      p_new[i] = bvc[i] * e_old[i] ;
-
-      if    (std::fabs(p_new[i]) <  p_cut   )
-         p_new[i] = Real_t(0.0) ;
-
-      if    ( vnewc[elem] >= eosvmax ) /* impossible condition here? */
-         p_new[i] = Real_t(0.0) ;
-
-      if    (p_new[i]       <  pmin)
-         p_new[i]   = pmin ;
-   });
-}
-
-/******************************************/
-
-static inline
 void CalcEnergyForElems(Real_t* p_new, Real_t* e_new, Real_t* q_new,
                         Real_t* bvc, Real_t* pbvc,
                         Real_t* p_old, Real_t* e_old, Real_t* q_old,
@@ -48,143 +14,96 @@ void CalcEnergyForElems(Real_t* p_new, Real_t* e_new, Real_t* q_new,
                         Real_t eosvmax,
                         Index_t length, Index_t *regElemList)
 {
-   std::vector<Real_t> pHalfStep(length) ;
-   Real_t* pHalfStep_ptr = pHalfStep.data() ;
+   /* Fused kernel: replaces 11 parallel_for (3×CalcPressureForElems×2 sub-loops
+      + e1/q1/e2/e3/q2) with a single per-element pass.
+      pHalfStep vector eliminated (→ scalar phs).
+      bvc/pbvc arrays written once at the end for CalcSoundSpeedForElems. */
+   const Real_t c1s  = Real_t(2.0) / Real_t(3.0) ;
+   const Real_t sixth = Real_t(1.0) / Real_t(6.0) ;
 
-   Kokkos::parallel_for("CalcEnergyForElems_e1", length,
+   Kokkos::parallel_for("CalcEnergyForElems", length,
                         [&](Index_t i) {
-      e_new[i] = e_old[i] - Real_t(0.5) * delvc[i] * (p_old[i] + q_old[i])
-         + Real_t(0.5) * work[i];
+      Index_t elem = regElemList[i] ;
 
-      if (e_new[i]  < emin ) {
-         e_new[i] = emin ;
-      }
-   });
+      // --- e1 ---
+      Real_t e_i = e_old[i] - Real_t(0.5) * delvc[i] * (p_old[i] + q_old[i])
+                             + Real_t(0.5) * work[i] ;
+      if (e_i < emin) e_i = emin ;
 
-   CalcPressureForElems(pHalfStep_ptr, bvc, pbvc, e_new, compHalfStep, vnewc,
-                        pmin, p_cut, eosvmax, length, regElemList);
+      // --- 1st CalcPressureForElems (compHalfStep) → phs (local scalar) ---
+      Real_t bvc_half = c1s * (compHalfStep[i] + Real_t(1.)) ;
+      Real_t phs      = bvc_half * e_i ;
+      if (std::fabs(phs) < p_cut)   phs = Real_t(0.0) ;
+      if (vnewc[elem] >= eosvmax)   phs = Real_t(0.0) ;
+      if (phs < pmin)               phs = pmin ;
 
-   Kokkos::parallel_for("CalcEnergyForElems_q1", length,
-                        [&](Index_t i) {
+      // --- q1 ---
+      Real_t q_i ;
       Real_t vhalf = Real_t(1.) / (Real_t(1.) + compHalfStep[i]) ;
-
-      if ( delvc[i] > Real_t(0.) ) {
-         q_new[i] /* = qq_old[i] = ql_old[i] */ = Real_t(0.) ;
+      if (delvc[i] > Real_t(0.)) {
+         q_i = Real_t(0.) ;
       }
       else {
-         Real_t ssc = ( pbvc[i] * e_new[i]
-                 + vhalf * vhalf * bvc[i] * pHalfStep_ptr[i] ) / rho0 ;
-
-         if ( ssc <= Real_t(.1111111e-36) ) {
-            ssc = Real_t(.3333333e-18) ;
-         } else {
-            ssc = std::sqrt(ssc) ;
-         }
-
-         q_new[i] = (ssc*ql_old[i] + qq_old[i]) ;
+         Real_t ssc = (c1s * e_i + vhalf * vhalf * bvc_half * phs) / rho0 ;
+         if (ssc <= Real_t(.1111111e-36)) ssc = Real_t(.3333333e-18) ;
+         else                            ssc = std::sqrt(ssc) ;
+         q_i = ssc * ql_old[i] + qq_old[i] ;
       }
+      e_i += Real_t(0.5) * delvc[i]
+             * (Real_t(3.0)*(p_old[i] + q_old[i]) - Real_t(4.0)*(phs + q_i)) ;
 
-      e_new[i] = e_new[i] + Real_t(0.5) * delvc[i]
-         * (  Real_t(3.0)*(p_old[i]     + q_old[i])
-              - Real_t(4.0)*(pHalfStep_ptr[i] + q_new[i])) ;
-   });
+      // --- e2 ---
+      e_i += Real_t(0.5) * work[i] ;
+      if (std::fabs(e_i) < e_cut) e_i = Real_t(0.) ;
+      if (e_i < emin)             e_i = emin ;
 
-   Kokkos::parallel_for("CalcEnergyForElems_e2", length,
-                        [&](Index_t i) {
-      e_new[i] += Real_t(0.5) * work[i];
+      // --- 2nd CalcPressureForElems (compression) → p_new_local ---
+      Real_t bvc_full    = c1s * (compression[i] + Real_t(1.)) ;
+      Real_t p_new_local = bvc_full * e_i ;
+      if (std::fabs(p_new_local) < p_cut) p_new_local = Real_t(0.0) ;
+      if (vnewc[elem] >= eosvmax)         p_new_local = Real_t(0.0) ;
+      if (p_new_local < pmin)             p_new_local = pmin ;
 
-      if (std::fabs(e_new[i]) < e_cut) {
-         e_new[i] = Real_t(0.)  ;
-      }
-      if (     e_new[i]  < emin ) {
-         e_new[i] = emin ;
-      }
-   });
-
-   CalcPressureForElems(p_new, bvc, pbvc, e_new, compression, vnewc,
-                        pmin, p_cut, eosvmax, length, regElemList);
-
-   Kokkos::parallel_for("CalcEnergyForElems_e3", length,
-                        [&](Index_t i) {
-      const Real_t sixth = Real_t(1.0) / Real_t(6.0) ;
-      Index_t elem = regElemList[i];
+      // --- e3 ---
       Real_t q_tilde ;
-
       if (delvc[i] > Real_t(0.)) {
          q_tilde = Real_t(0.) ;
       }
       else {
-         Real_t ssc = ( pbvc[i] * e_new[i]
-                 + vnewc[elem] * vnewc[elem] * bvc[i] * p_new[i] ) / rho0 ;
-
-         if ( ssc <= Real_t(.1111111e-36) ) {
-            ssc = Real_t(.3333333e-18) ;
-         } else {
-            ssc = std::sqrt(ssc) ;
-         }
-
-         q_tilde = (ssc*ql_old[i] + qq_old[i]) ;
+         Real_t ssc = (c1s * e_i
+                       + vnewc[elem] * vnewc[elem] * bvc_full * p_new_local) / rho0 ;
+         if (ssc <= Real_t(.1111111e-36)) ssc = Real_t(.3333333e-18) ;
+         else                            ssc = std::sqrt(ssc) ;
+         q_tilde = ssc * ql_old[i] + qq_old[i] ;
       }
+      e_i -= (Real_t(7.0)*(p_old[i] + q_old[i])
+              - Real_t(8.0)*(phs + q_i)
+              + (p_new_local + q_tilde)) * delvc[i] * sixth ;
+      if (std::fabs(e_i) < e_cut) e_i = Real_t(0.) ;
+      if (e_i < emin)             e_i = emin ;
 
-      e_new[i] = e_new[i] - (  Real_t(7.0)*(p_old[i]     + q_old[i])
-                               - Real_t(8.0)*(pHalfStep_ptr[i] + q_new[i])
-                               + (p_new[i] + q_tilde)) * delvc[i]*sixth ;
+      // --- 3rd CalcPressureForElems (same formula, updated e_i) ---
+      Real_t p_i = bvc_full * e_i ;
+      if (std::fabs(p_i) < p_cut) p_i = Real_t(0.0) ;
+      if (vnewc[elem] >= eosvmax) p_i = Real_t(0.0) ;
+      if (p_i < pmin)             p_i = pmin ;
 
-      if (std::fabs(e_new[i]) < e_cut) {
-         e_new[i] = Real_t(0.)  ;
-      }
-      if (     e_new[i]  < emin ) {
-         e_new[i] = emin ;
-      }
-   });
+      // Write arrays (bvc/pbvc needed by CalcSoundSpeedForElems)
+      p_new[i] = p_i ;
+      e_new[i] = e_i ;
+      q_new[i] = q_i ;
+      bvc[i]   = bvc_full ;
+      pbvc[i]  = c1s ;
 
-   CalcPressureForElems(p_new, bvc, pbvc, e_new, compression, vnewc,
-                        pmin, p_cut, eosvmax, length, regElemList);
-
-   Kokkos::parallel_for("CalcEnergyForElems_q2", length,
-                        [&](Index_t i) {
-      Index_t elem = regElemList[i];
-
-      if ( delvc[i] <= Real_t(0.) ) {
-         Real_t ssc = ( pbvc[i] * e_new[i]
-                 + vnewc[elem] * vnewc[elem] * bvc[i] * p_new[i] ) / rho0 ;
-
-         if ( ssc <= Real_t(.1111111e-36) ) {
-            ssc = Real_t(.3333333e-18) ;
-         } else {
-            ssc = std::sqrt(ssc) ;
-         }
-
-         q_new[i] = (ssc*ql_old[i] + qq_old[i]) ;
-
+      // --- q2 ---
+      if (delvc[i] <= Real_t(0.)) {
+         Real_t ssc = (c1s * e_i
+                       + vnewc[elem] * vnewc[elem] * bvc_full * p_i) / rho0 ;
+         if (ssc <= Real_t(.1111111e-36)) ssc = Real_t(.3333333e-18) ;
+         else                            ssc = std::sqrt(ssc) ;
+         q_new[i] = ssc * ql_old[i] + qq_old[i] ;
          if (std::fabs(q_new[i]) < q_cut) q_new[i] = Real_t(0.) ;
       }
-   });
-
-   return ;
-}
-
-/******************************************/
-
-static inline
-void CalcSoundSpeedForElems(Domain &domain,
-                            Real_t *vnewc, Real_t rho0, Real_t *enewc,
-                            Real_t *pnewc, Real_t *pbvc,
-                            Real_t *bvc, Real_t ss4o3,
-                            Index_t len, Index_t *regElemList)
-{
-   Kokkos::parallel_for("CalcSoundSpeedForElems", len,
-                        [&](Index_t i) {
-      Index_t elem = regElemList[i];
-      Real_t ssTmp = (pbvc[i] * enewc[i] + vnewc[elem] * vnewc[elem] *
-                 bvc[i] * pnewc[i]) / rho0;
-      if (ssTmp <= Real_t(.1111111e-36)) {
-         ssTmp = Real_t(.3333333e-18);
-      }
-      else {
-         ssTmp = std::sqrt(ssTmp);
-      }
-      domain.ss(elem) = ssTmp ;
    });
 }
 
@@ -196,7 +115,6 @@ void EvalEOSForElems(Domain& domain, Real_t *vnewc,
 {
    Real_t  e_cut = domain.e_cut() ;
    Real_t  p_cut = domain.p_cut() ;
-   Real_t  ss4o3 = domain.ss4o3() ;
    Real_t  q_cut = domain.q_cut() ;
 
    Real_t eosvmax = domain.eosvmax() ;
@@ -241,8 +159,9 @@ void EvalEOSForElems(Domain& domain, Real_t *vnewc,
 
    //loop to add load imbalance based on region number
    for(Int_t j = 0; j < rep; j++) {
-      /* compress data, minimal set */
-      Kokkos::parallel_for("EvalEOSForElems_gather", numElemReg,
+      /* Fused prep: gather + compression + eosvmin/max clamp + zero work.
+         Replaces 5 separate parallel_for (with 4 barriers) with 1. */
+      Kokkos::parallel_for("EvalEOSForElems_prep", numElemReg,
                            [&](Index_t i) {
          Index_t elem = regElemList[i];
          e_old_ptr[i]  = domain.e(elem) ;
@@ -251,41 +170,21 @@ void EvalEOSForElems(Domain& domain, Real_t *vnewc,
          q_old_ptr[i]  = domain.q(elem) ;
          qq_old_ptr[i] = domain.qq(elem) ;
          ql_old_ptr[i] = domain.ql(elem) ;
-      });
 
-      Kokkos::parallel_for("EvalEOSForElems_compression", numElemReg,
-                           [&](Index_t i) {
-         Index_t elem = regElemList[i];
          Real_t vchalf ;
-         compression_ptr[i] = Real_t(1.) / vnewc[elem] - Real_t(1.);
-         vchalf = vnewc[elem] - delvc_ptr[i] * Real_t(.5);
-         compHalfStep_ptr[i] = Real_t(1.) / vchalf - Real_t(1.);
-      });
+         compression_ptr[i]  = Real_t(1.) / vnewc[elem] - Real_t(1.) ;
+         vchalf               = vnewc[elem] - delvc_ptr[i] * Real_t(.5) ;
+         compHalfStep_ptr[i] = Real_t(1.) / vchalf - Real_t(1.) ;
 
-      /* Check for v > eosvmax or v < eosvmin */
-      if ( eosvmin != Real_t(0.) ) {
-         Kokkos::parallel_for("EvalEOSForElems_eosvmin", numElemReg,
-                              [&](Index_t i) {
-            Index_t elem = regElemList[i];
-            if (vnewc[elem] <= eosvmin) { /* impossible due to calling func? */
-               compHalfStep_ptr[i] = compression_ptr[i] ;
-            }
-         });
-      }
-      if ( eosvmax != Real_t(0.) ) {
-         Kokkos::parallel_for("EvalEOSForElems_eosvmax", numElemReg,
-                              [&](Index_t i) {
-            Index_t elem = regElemList[i];
-            if (vnewc[elem] >= eosvmax) { /* impossible due to calling func? */
-               p_old_ptr[i]        = Real_t(0.) ;
-               compression_ptr[i]  = Real_t(0.) ;
-               compHalfStep_ptr[i] = Real_t(0.) ;
-            }
-         });
-      }
+         if (eosvmin != Real_t(0.) && vnewc[elem] <= eosvmin)
+            compHalfStep_ptr[i] = compression_ptr[i] ;
 
-      Kokkos::parallel_for("EvalEOSForElems_work", numElemReg,
-                           [&](Index_t i) {
+         if (eosvmax != Real_t(0.) && vnewc[elem] >= eosvmax) {
+            p_old_ptr[i]        = Real_t(0.) ;
+            compression_ptr[i]  = Real_t(0.) ;
+            compHalfStep_ptr[i] = Real_t(0.) ;
+         }
+
          work_ptr[i] = Real_t(0.) ;
       });
 
@@ -297,23 +196,26 @@ void EvalEOSForElems(Domain& domain, Real_t *vnewc,
                          numElemReg, regElemList);
    }
 
-   Kokkos::parallel_for("EvalEOSForElems_scatter", numElemReg,
+   /* Fused: scatter p/e/q + compute sound speed in one pass.
+      CalcSoundSpeedForElems reads e_new_ptr/p_new_ptr (temp vectors, not domain.e/p),
+      so there is no data race with the scatter writes. */
+   Kokkos::parallel_for("EvalEOSForElems_scatter_ss", numElemReg,
                         [&](Index_t i) {
       Index_t elem = regElemList[i];
       domain.p(elem) = p_new_ptr[i] ;
       domain.e(elem) = e_new_ptr[i] ;
       domain.q(elem) = q_new_ptr[i] ;
+      Real_t ssTmp = (pbvc_ptr[i] * e_new_ptr[i]
+                     + vnewc[elem] * vnewc[elem] * bvc_ptr[i] * p_new_ptr[i]) / rho0 ;
+      if (ssTmp <= Real_t(.1111111e-36)) ssTmp = Real_t(.3333333e-18) ;
+      else                               ssTmp = std::sqrt(ssTmp) ;
+      domain.ss(elem) = ssTmp ;
    });
-
-   CalcSoundSpeedForElems(domain,
-                          vnewc, rho0, e_new_ptr, p_new_ptr,
-                          pbvc_ptr, bvc_ptr, ss4o3,
-                          numElemReg, regElemList) ;
 }
 
 /******************************************/
 
-void ApplyMaterialPropertiesForElems(Domain& domain, Real_t vnew[])
+void ApplyMaterialPropertiesForElems(Domain& domain, Real_t* vnew)
 {
    Index_t numElem = domain.numElem() ;
 
@@ -322,40 +224,16 @@ void ApplyMaterialPropertiesForElems(Domain& domain, Real_t vnew[])
     Real_t eosvmin = domain.eosvmin() ;
     Real_t eosvmax = domain.eosvmax() ;
 
-    // Bound the updated relative volumes with eosvmin/max
-    if (eosvmin != Real_t(0.)) {
-       Kokkos::parallel_for("ApplyMaterialProperties_eosvmin", numElem,
-                            [&](Index_t i) {
-          if (vnew[i] < eosvmin)
-             vnew[i] = eosvmin ;
-       });
-    }
-
-    if (eosvmax != Real_t(0.)) {
-       Kokkos::parallel_for("ApplyMaterialProperties_eosvmax", numElem,
-                            [&](Index_t i) {
-          if (vnew[i] > eosvmax)
-             vnew[i] = eosvmax ;
-       });
-    }
-
-    // This check may not make perfect sense in LULESH, but
-    // it's representative of something in the full code -
-    // just leave it in, please
-    Kokkos::parallel_for("ApplyMaterialProperties_check", numElem,
+    /* Fused: eosvmin clamp + eosvmax clamp + volume sanity check.
+       All three are per-element independent; check reads domain.v(i) not vnew. */
+    Kokkos::parallel_for("ApplyMaterialProperties", numElem,
                          [&](Index_t i) {
+       if (eosvmin != Real_t(0.) && vnew[i] < eosvmin) vnew[i] = eosvmin ;
+       if (eosvmax != Real_t(0.) && vnew[i] > eosvmax) vnew[i] = eosvmax ;
        Real_t vc = domain.v(i) ;
-       if (eosvmin != Real_t(0.)) {
-          if (vc < eosvmin)
-             vc = eosvmin ;
-       }
-       if (eosvmax != Real_t(0.)) {
-          if (vc > eosvmax)
-             vc = eosvmax ;
-       }
-       if (vc <= 0.) {
-          exit(VolumeError);
-       }
+       if (eosvmin != Real_t(0.) && vc < eosvmin) vc = eosvmin ;
+       if (eosvmax != Real_t(0.) && vc > eosvmax) vc = eosvmax ;
+       if (vc <= 0.) exit(VolumeError) ;
     });
 
     for (Int_t r=0 ; r<domain.numReg() ; r++) {
@@ -380,7 +258,7 @@ void ApplyMaterialPropertiesForElems(Domain& domain, Real_t vnew[])
 
 /******************************************/
 
-void UpdateVolumesForElems(Domain &domain, Real_t *vnew,
+void UpdateVolumesForElems(Domain& domain, Real_t* vnew,
                            Real_t v_cut, Index_t length)
 {
    if (length != 0) {

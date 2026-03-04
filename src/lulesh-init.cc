@@ -286,11 +286,6 @@ Domain::SetupThreadSupportStructures()
 void
 Domain::SetupCommBuffers(Int_t edgeNodes)
 {
-  // allocate a buffer large enough for nodal ghost data 
-  Index_t maxEdgeSize = std::max({this->sizeX(), this->sizeY(), this->sizeZ()})+1 ;
-  m_maxPlaneSize = CACHE_ALIGN_REAL(maxEdgeSize*maxEdgeSize) ;
-  m_maxEdgeSize = CACHE_ALIGN_REAL(maxEdgeSize) ;
-
   // assume communication to 6 neighbors by default 
   m_rowMin = (m_rowLoc == 0)        ? 0 : 1;
   m_rowMax = (m_rowLoc == m_tp-1)     ? 0 : 1;

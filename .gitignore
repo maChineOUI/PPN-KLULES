@@ -1,6 +1,8 @@
 # build artifacts
 a.out
 build/
+build_profile/
+build_*/
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
@@ -11,11 +13,3 @@ Makefile
 
 # editors
 .vscode/
-
-# build artifacts
-build/
-build_profile/
-
-# local run outputs
-lulesh_profile_sample.txt
-lulesh_test_sample.txt
