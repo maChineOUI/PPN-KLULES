@@ -1,0 +1,4 @@
+experiment_results/perf/*.perf filter=lfs diff=lfs merge=lfs -text
+experiment_results/perf/*.data filter=lfs diff=lfs merge=lfs -text
+experiment_results/perf/*.folded filter=lfs diff=lfs merge=lfs -text
+experiment_results/perf/*.svg filter=lfs diff=lfs merge=lfs -text
