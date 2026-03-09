@@ -151,150 +151,120 @@ void CalcMonotonicQGradientsForElems(Domain& domain, Real_t* vnew)
 /******************************************/
 
 static inline
-void CalcMonotonicQRegionForElems(Domain& domain, Int_t r,
-                                  Real_t* vnew, Real_t ptiny)
+void CalcMonotonicQForElems(Domain& domain, Real_t* vnew)
 {
-   Real_t monoq_limiter_mult = domain.monoq_limiter_mult();
-   Real_t monoq_max_slope = domain.monoq_max_slope();
-   Real_t qlc_monoq = domain.qlc_monoq();
-   Real_t qqc_monoq = domain.qqc_monoq();
-   Index_t regElemSize = domain.regElemSize(r);
+   /* Opt-10: flatten 11 per-region parallel_for into one over all numElem.
+      All domain parameters (monoq_limiter_mult, etc.) are global scalars, not
+      per-region, so the body is identical for every element regardless of region.
+      Saves (numReg - 1) = 10 barriers per step. */
+   const Real_t ptiny = Real_t(1.e-36) ;
+   const Real_t monoq_limiter_mult = domain.monoq_limiter_mult() ;
+   const Real_t monoq_max_slope    = domain.monoq_max_slope() ;
+   const Real_t qlc_monoq          = domain.qlc_monoq() ;
+   const Real_t qqc_monoq          = domain.qqc_monoq() ;
+   Index_t numElem = domain.numElem() ;
 
-   Kokkos::parallel_for("CalcMonotonicQRegionForElems",
-                        Kokkos::RangePolicy<>(0, regElemSize),
-                        [&](Index_t ielem) {
-      Index_t i = domain.regElemlist(r,ielem);
+   Kokkos::parallel_for("CalcMonotonicQForElems", numElem,
+                        [&](Index_t i) {
       Real_t qlin, qquad ;
       Real_t phixi, phieta, phizeta ;
       Int_t bcMask = domain.elemBC(i) ;
-      Real_t delvm = 0.0, delvp =0.0;
+      Real_t delvm = 0.0, delvp = 0.0 ;
 
       /*  phixi     */
-      Real_t norm = Real_t(1.) / (domain.delv_xi(i)+ ptiny ) ;
+      Real_t norm = Real_t(1.) / (domain.delv_xi(i) + ptiny) ;
 
       switch (bcMask & XI_M) {
          case XI_M_COMM: /* needs comm data */
-         case 0:         delvm = domain.delv_xi(domain.lxim(i)); break ;
-         case XI_M_SYMM: delvm = domain.delv_xi(i) ;       break ;
-         case XI_M_FREE: delvm = Real_t(0.0) ;      break ;
-         default:          fprintf(stderr, "Error in switch at %s line %d\n",
-                                   __FILE__, __LINE__);
-            delvm = 0; /* ERROR - but quiets the compiler */
-            break;
+         case 0:         delvm = domain.delv_xi(domain.lxim(i)) ; break ;
+         case XI_M_SYMM: delvm = domain.delv_xi(i) ;              break ;
+         case XI_M_FREE: delvm = Real_t(0.0) ;                    break ;
+         default: fprintf(stderr, "Error in switch at %s line %d\n", __FILE__, __LINE__);
+            delvm = 0; break;
       }
       switch (bcMask & XI_P) {
          case XI_P_COMM: /* needs comm data */
          case 0:         delvp = domain.delv_xi(domain.lxip(i)) ; break ;
-         case XI_P_SYMM: delvp = domain.delv_xi(i) ;       break ;
-         case XI_P_FREE: delvp = Real_t(0.0) ;      break ;
-         default:          fprintf(stderr, "Error in switch at %s line %d\n",
-                                   __FILE__, __LINE__);
-            delvp = 0; /* ERROR - but quiets the compiler */
-            break;
+         case XI_P_SYMM: delvp = domain.delv_xi(i) ;              break ;
+         case XI_P_FREE: delvp = Real_t(0.0) ;                    break ;
+         default: fprintf(stderr, "Error in switch at %s line %d\n", __FILE__, __LINE__);
+            delvp = 0; break;
       }
-
-      delvm = delvm * norm ;
-      delvp = delvp * norm ;
-
-      phixi = Real_t(.5) * ( delvm + delvp ) ;
-
-      delvm *= monoq_limiter_mult ;
-      delvp *= monoq_limiter_mult ;
-
-      if ( delvm < phixi ) phixi = delvm ;
-      if ( delvp < phixi ) phixi = delvp ;
-      if ( phixi < Real_t(0.)) phixi = Real_t(0.) ;
-      if ( phixi > monoq_max_slope) phixi = monoq_max_slope;
-
+      delvm *= norm ; delvp *= norm ;
+      phixi = Real_t(.5) * (delvm + delvp) ;
+      delvm *= monoq_limiter_mult ; delvp *= monoq_limiter_mult ;
+      if (delvm < phixi) phixi = delvm ;
+      if (delvp < phixi) phixi = delvp ;
+      if (phixi < Real_t(0.)) phixi = Real_t(0.) ;
+      if (phixi > monoq_max_slope) phixi = monoq_max_slope ;
 
       /*  phieta     */
-      norm = Real_t(1.) / ( domain.delv_eta(i) + ptiny ) ;
+      norm = Real_t(1.) / (domain.delv_eta(i) + ptiny) ;
 
       switch (bcMask & ETA_M) {
          case ETA_M_COMM: /* needs comm data */
          case 0:          delvm = domain.delv_eta(domain.letam(i)) ; break ;
-         case ETA_M_SYMM: delvm = domain.delv_eta(i) ;        break ;
-         case ETA_M_FREE: delvm = Real_t(0.0) ;        break ;
-         default:          fprintf(stderr, "Error in switch at %s line %d\n",
-                                   __FILE__, __LINE__);
-            delvm = 0; /* ERROR - but quiets the compiler */
-            break;
+         case ETA_M_SYMM: delvm = domain.delv_eta(i) ;               break ;
+         case ETA_M_FREE: delvm = Real_t(0.0) ;                      break ;
+         default: fprintf(stderr, "Error in switch at %s line %d\n", __FILE__, __LINE__);
+            delvm = 0; break;
       }
       switch (bcMask & ETA_P) {
          case ETA_P_COMM: /* needs comm data */
          case 0:          delvp = domain.delv_eta(domain.letap(i)) ; break ;
-         case ETA_P_SYMM: delvp = domain.delv_eta(i) ;        break ;
-         case ETA_P_FREE: delvp = Real_t(0.0) ;        break ;
-         default:          fprintf(stderr, "Error in switch at %s line %d\n",
-                                   __FILE__, __LINE__);
-            delvp = 0; /* ERROR - but quiets the compiler */
-            break;
+         case ETA_P_SYMM: delvp = domain.delv_eta(i) ;               break ;
+         case ETA_P_FREE: delvp = Real_t(0.0) ;                      break ;
+         default: fprintf(stderr, "Error in switch at %s line %d\n", __FILE__, __LINE__);
+            delvp = 0; break;
       }
-
-      delvm = delvm * norm ;
-      delvp = delvp * norm ;
-
-      phieta = Real_t(.5) * ( delvm + delvp ) ;
-
-      delvm *= monoq_limiter_mult ;
-      delvp *= monoq_limiter_mult ;
-
-      if ( delvm  < phieta ) phieta = delvm ;
-      if ( delvp  < phieta ) phieta = delvp ;
-      if ( phieta < Real_t(0.)) phieta = Real_t(0.) ;
-      if ( phieta > monoq_max_slope)  phieta = monoq_max_slope;
+      delvm *= norm ; delvp *= norm ;
+      phieta = Real_t(.5) * (delvm + delvp) ;
+      delvm *= monoq_limiter_mult ; delvp *= monoq_limiter_mult ;
+      if (delvm  < phieta) phieta = delvm ;
+      if (delvp  < phieta) phieta = delvp ;
+      if (phieta < Real_t(0.)) phieta = Real_t(0.) ;
+      if (phieta > monoq_max_slope) phieta = monoq_max_slope ;
 
       /*  phizeta     */
-      norm = Real_t(1.) / ( domain.delv_zeta(i) + ptiny ) ;
+      norm = Real_t(1.) / (domain.delv_zeta(i) + ptiny) ;
 
       switch (bcMask & ZETA_M) {
          case ZETA_M_COMM: /* needs comm data */
          case 0:           delvm = domain.delv_zeta(domain.lzetam(i)) ; break ;
-         case ZETA_M_SYMM: delvm = domain.delv_zeta(i) ;         break ;
-         case ZETA_M_FREE: delvm = Real_t(0.0) ;          break ;
-         default:          fprintf(stderr, "Error in switch at %s line %d\n",
-                                   __FILE__, __LINE__);
-            delvm = 0; /* ERROR - but quiets the compiler */
-            break;
+         case ZETA_M_SYMM: delvm = domain.delv_zeta(i) ;                break ;
+         case ZETA_M_FREE: delvm = Real_t(0.0) ;                        break ;
+         default: fprintf(stderr, "Error in switch at %s line %d\n", __FILE__, __LINE__);
+            delvm = 0; break;
       }
       switch (bcMask & ZETA_P) {
          case ZETA_P_COMM: /* needs comm data */
          case 0:           delvp = domain.delv_zeta(domain.lzetap(i)) ; break ;
-         case ZETA_P_SYMM: delvp = domain.delv_zeta(i) ;         break ;
-         case ZETA_P_FREE: delvp = Real_t(0.0) ;          break ;
-         default:          fprintf(stderr, "Error in switch at %s line %d\n",
-                                   __FILE__, __LINE__);
-            delvp = 0; /* ERROR - but quiets the compiler */
-            break;
+         case ZETA_P_SYMM: delvp = domain.delv_zeta(i) ;                break ;
+         case ZETA_P_FREE: delvp = Real_t(0.0) ;                        break ;
+         default: fprintf(stderr, "Error in switch at %s line %d\n", __FILE__, __LINE__);
+            delvp = 0; break;
       }
-
-      delvm = delvm * norm ;
-      delvp = delvp * norm ;
-
-      phizeta = Real_t(.5) * ( delvm + delvp ) ;
-
-      delvm *= monoq_limiter_mult ;
-      delvp *= monoq_limiter_mult ;
-
-      if ( delvm   < phizeta ) phizeta = delvm ;
-      if ( delvp   < phizeta ) phizeta = delvp ;
-      if ( phizeta < Real_t(0.)) phizeta = Real_t(0.);
-      if ( phizeta > monoq_max_slope  ) phizeta = monoq_max_slope;
+      delvm *= norm ; delvp *= norm ;
+      phizeta = Real_t(.5) * (delvm + delvp) ;
+      delvm *= monoq_limiter_mult ; delvp *= monoq_limiter_mult ;
+      if (delvm   < phizeta) phizeta = delvm ;
+      if (delvp   < phizeta) phizeta = delvp ;
+      if (phizeta < Real_t(0.)) phizeta = Real_t(0.) ;
+      if (phizeta > monoq_max_slope) phizeta = monoq_max_slope ;
 
       /* Remove length scale */
-
-      if ( domain.vdov(i) > Real_t(0.) )  {
+      if (domain.vdov(i) > Real_t(0.)) {
          qlin  = Real_t(0.) ;
          qquad = Real_t(0.) ;
       }
       else {
-         Real_t delvxxi   = domain.delv_xi(i)   * domain.delx_xi(i)   ;
-         Real_t delvxeta  = domain.delv_eta(i)  * domain.delx_eta(i)  ;
+         Real_t delvxxi   = domain.delv_xi(i)   * domain.delx_xi(i) ;
+         Real_t delvxeta  = domain.delv_eta(i)  * domain.delx_eta(i) ;
          Real_t delvxzeta = domain.delv_zeta(i) * domain.delx_zeta(i) ;
 
-         if ( delvxxi   > Real_t(0.) ) delvxxi   = Real_t(0.) ;
-         if ( delvxeta  > Real_t(0.) ) delvxeta  = Real_t(0.) ;
-         if ( delvxzeta > Real_t(0.) ) delvxzeta = Real_t(0.) ;
+         if (delvxxi   > Real_t(0.)) delvxxi   = Real_t(0.) ;
+         if (delvxeta  > Real_t(0.)) delvxeta  = Real_t(0.) ;
+         if (delvxzeta > Real_t(0.)) delvxzeta = Real_t(0.) ;
 
          Real_t rho = domain.elemMass(i) / (domain.volo(i) * vnew[i]) ;
 
@@ -311,28 +281,7 @@ void CalcMonotonicQRegionForElems(Domain& domain, Int_t r,
 
       domain.qq(i) = qquad ;
       domain.ql(i) = qlin  ;
-   });
-}
-
-/******************************************/
-
-static inline
-void CalcMonotonicQForElems(Domain& domain, Real_t* vnew)
-{
-   //
-   // initialize parameters
-   //
-   const Real_t ptiny = Real_t(1.e-36) ;
-
-   //
-   // calculate the monotonic q for all regions
-   //
-   for (Index_t r=0 ; r<domain.numReg() ; ++r) {
-
-      if (domain.regElemSize(r) > 0) {
-         CalcMonotonicQRegionForElems(domain, r, vnew, ptiny) ;
-      }
-   }
+   }) ;
 }
 
 /******************************************/

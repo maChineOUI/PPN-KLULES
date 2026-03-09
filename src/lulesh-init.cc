@@ -100,9 +100,18 @@ Domain::Domain(Int_t numRanks, Index_t colLoc,
    SetupThreadSupportStructures();
 
    // Setup region index sets. For now, these are constant sized
-   // throughout the run, but could be changed every cycle to 
+   // throughout the run, but could be changed every cycle to
    // simulate effects of ALE on the lagrange solver
    CreateRegionIndexSets(nr, balance);
+
+   // Pre-allocate EOS temporaries to max region size (avoids ~11,000 malloc/free
+   // per run for -s 45 -i 200 with 11 regions).
+   {
+      Index_t maxRegSize = 0;
+      for (Int_t r = 0; r < nr; ++r)
+         if (regElemSize(r) > maxRegSize) maxRegSize = regElemSize(r);
+      m_elems.m_eosTemps.reserve(maxRegSize);
+   }
 
    // Setup symmetry nodesets
    SetupSymmetryPlanes(edgeNodes);

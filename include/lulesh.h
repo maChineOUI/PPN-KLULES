@@ -228,6 +228,9 @@ class Domain {
    // Element mass
    Real_t& elemMass(Index_t idx)  { return m_elems.m_elemMass[idx] ; }
 
+   // EOS pre-allocated temp buffer
+   auto& eosTemps() { return m_elems.m_eosTemps; }
+
    Index_t nodeElemCount(Index_t idx)
    { return m_conn.m_nodeElemStart[idx+1] - m_conn.m_nodeElemStart[idx] ; }
 
@@ -394,6 +397,24 @@ class Domain {
       Kokkos::View<Real_t*> m_arealg;              /* characteristic length of an element */
       Kokkos::View<Real_t*> m_ss;                  /* "sound speed" */
       Kokkos::View<Real_t*> m_elemMass;            /* mass */
+
+      /* EOS temporaries: pre-allocated to maxRegionSize, reused each timestep.
+         Region loops are serial, so one shared buffer is safe (no data race). */
+      struct EosTemps {
+         std::vector<Real_t> e_old, delvc, p_old, q_old;
+         std::vector<Real_t> compression, compHalfStep;
+         std::vector<Real_t> qq_old, ql_old, work;
+         std::vector<Real_t> p_new, e_new, q_new, bvc, pbvc;
+         void reserve(Index_t n) {
+            e_old.resize(n);       delvc.resize(n);
+            p_old.resize(n);       q_old.resize(n);
+            compression.resize(n); compHalfStep.resize(n);
+            qq_old.resize(n);      ql_old.resize(n);
+            work.resize(n);        p_new.resize(n);
+            e_new.resize(n);       q_new.resize(n);
+            bvc.resize(n);         pbvc.resize(n);
+         }
+      } m_eosTemps;
    } m_elems;
 
    // Region scalars

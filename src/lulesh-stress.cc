@@ -1,3 +1,4 @@
+#include <cstdlib>
 #include "lulesh-stress.h"
 #include "lulesh-geometry.h"
 
@@ -26,18 +27,17 @@ void IntegrateStressForElems( Domain& domain,
    Index_t numthreads = Kokkos::DefaultHostExecutionSpace().concurrency();
 
    Index_t numElem8 = numElem * 8 ;
-   std::vector<Real_t> fx_elem, fy_elem, fz_elem ;
 
+  // 64-byte aligned scatter buffers: each element occupies 8 doubles = 64 bytes =
+  // exactly one cache line, preventing false sharing between adjacent threads.
+  Real_t* fx_elem_ptr = nullptr ;
+  Real_t* fy_elem_ptr = nullptr ;
+  Real_t* fz_elem_ptr = nullptr ;
   if (numthreads > 1) {
-     fx_elem.resize(numElem8) ;
-     fy_elem.resize(numElem8) ;
-     fz_elem.resize(numElem8) ;
+     fx_elem_ptr = static_cast<Real_t*>(std::aligned_alloc(64, numElem8 * sizeof(Real_t))) ;
+     fy_elem_ptr = static_cast<Real_t*>(std::aligned_alloc(64, numElem8 * sizeof(Real_t))) ;
+     fz_elem_ptr = static_cast<Real_t*>(std::aligned_alloc(64, numElem8 * sizeof(Real_t))) ;
   }
-
-  // Extract raw pointers for lambda capture
-  Real_t* fx_elem_ptr = numthreads > 1 ? fx_elem.data() : nullptr ;
-  Real_t* fy_elem_ptr = numthreads > 1 ? fy_elem.data() : nullptr ;
-  Real_t* fz_elem_ptr = numthreads > 1 ? fz_elem.data() : nullptr ;
 
   // loop over all elements
   Kokkos::parallel_for("IntegrateStressForElems_scatter", numElem,
@@ -110,6 +110,9 @@ void IntegrateStressForElems( Domain& domain,
         domain.fy(gnode) = fy_tmp ;
         domain.fz(gnode) = fz_tmp ;
      });
+     std::free(fx_elem_ptr) ;
+     std::free(fy_elem_ptr) ;
+     std::free(fz_elem_ptr) ;
   }
 }
 
@@ -166,16 +169,16 @@ void CalcHourglassControlForElems(Domain& domain,
    Index_t numElem8 = numElem * 8 ;
    Index_t numthreads = Kokkos::DefaultHostExecutionSpace().concurrency() ;
 
-   // Scatter buffers: only needed when threaded and hgcoef > 0
-   std::vector<Real_t> fx_elem, fy_elem, fz_elem ;
+   // 64-byte aligned scatter buffers: only needed when threaded and hgcoef > 0.
+   // Each element occupies 8 doubles = 64 bytes = one cache line → no false sharing.
+   Real_t* fx_elem_ptr = nullptr ;
+   Real_t* fy_elem_ptr = nullptr ;
+   Real_t* fz_elem_ptr = nullptr ;
    if (hgcoef > Real_t(0.) && numthreads > 1) {
-      fx_elem.resize(numElem8) ;
-      fy_elem.resize(numElem8) ;
-      fz_elem.resize(numElem8) ;
+      fx_elem_ptr = static_cast<Real_t*>(std::aligned_alloc(64, numElem8 * sizeof(Real_t))) ;
+      fy_elem_ptr = static_cast<Real_t*>(std::aligned_alloc(64, numElem8 * sizeof(Real_t))) ;
+      fz_elem_ptr = static_cast<Real_t*>(std::aligned_alloc(64, numElem8 * sizeof(Real_t))) ;
    }
-   Real_t* fx_elem_ptr = fx_elem.empty() ? nullptr : fx_elem.data() ;
-   Real_t* fy_elem_ptr = fy_elem.empty() ? nullptr : fy_elem.data() ;
-   Real_t* fz_elem_ptr = fz_elem.empty() ? nullptr : fz_elem.data() ;
 
    // Hourglass gamma matrix (Flanagan-Belytschko)
    const Real_t gamma[4][8] = {
@@ -316,6 +319,9 @@ void CalcHourglassControlForElems(Domain& domain,
          domain.fy(gnode) += fy_tmp ;
          domain.fz(gnode) += fz_tmp ;
       });
+      std::free(fx_elem_ptr) ;
+      std::free(fy_elem_ptr) ;
+      std::free(fz_elem_ptr) ;
    }
 }
 

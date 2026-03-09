@@ -123,39 +123,26 @@ void EvalEOSForElems(Domain& domain, Real_t *vnewc,
    Real_t emin    = domain.emin() ;
    Real_t rho0    = domain.refdens() ;
 
-   // These temporaries will be of different size for
-   // each call (due to different sized region element
-   // lists)
-   std::vector<Real_t> e_old(numElemReg) ;
-   std::vector<Real_t> delvc(numElemReg) ;
-   std::vector<Real_t> p_old(numElemReg) ;
-   std::vector<Real_t> q_old(numElemReg) ;
-   std::vector<Real_t> compression(numElemReg) ;
-   std::vector<Real_t> compHalfStep(numElemReg) ;
-   std::vector<Real_t> qq_old(numElemReg) ;
-   std::vector<Real_t> ql_old(numElemReg) ;
-   std::vector<Real_t> work(numElemReg) ;
-   std::vector<Real_t> p_new(numElemReg) ;
-   std::vector<Real_t> e_new(numElemReg) ;
-   std::vector<Real_t> q_new(numElemReg) ;
-   std::vector<Real_t> bvc(numElemReg) ;
-   std::vector<Real_t> pbvc(numElemReg) ;
+   // Reuse pre-allocated EOS temporaries from Domain (allocated once in constructor
+   // to maxRegionSize, eliminating ~11,000 malloc/free per run at -s 45 -i 200).
+   // Region calls are serial, so the shared buffer has no data race.
+   auto& t = domain.eosTemps();
 
    // Extract raw pointers for lambda capture
-   Real_t* e_old_ptr        = e_old.data() ;
-   Real_t* delvc_ptr        = delvc.data() ;
-   Real_t* p_old_ptr        = p_old.data() ;
-   Real_t* q_old_ptr        = q_old.data() ;
-   Real_t* compression_ptr  = compression.data() ;
-   Real_t* compHalfStep_ptr = compHalfStep.data() ;
-   Real_t* qq_old_ptr       = qq_old.data() ;
-   Real_t* ql_old_ptr       = ql_old.data() ;
-   Real_t* work_ptr         = work.data() ;
-   Real_t* p_new_ptr        = p_new.data() ;
-   Real_t* e_new_ptr        = e_new.data() ;
-   Real_t* q_new_ptr        = q_new.data() ;
-   Real_t* bvc_ptr          = bvc.data() ;
-   Real_t* pbvc_ptr         = pbvc.data() ;
+   Real_t* e_old_ptr        = t.e_old.data() ;
+   Real_t* delvc_ptr        = t.delvc.data() ;
+   Real_t* p_old_ptr        = t.p_old.data() ;
+   Real_t* q_old_ptr        = t.q_old.data() ;
+   Real_t* compression_ptr  = t.compression.data() ;
+   Real_t* compHalfStep_ptr = t.compHalfStep.data() ;
+   Real_t* qq_old_ptr       = t.qq_old.data() ;
+   Real_t* ql_old_ptr       = t.ql_old.data() ;
+   Real_t* work_ptr         = t.work.data() ;
+   Real_t* p_new_ptr        = t.p_new.data() ;
+   Real_t* e_new_ptr        = t.e_new.data() ;
+   Real_t* q_new_ptr        = t.q_new.data() ;
+   Real_t* bvc_ptr          = t.bvc.data() ;
+   Real_t* pbvc_ptr         = t.pbvc.data() ;
 
    //loop to add load imbalance based on region number
    for(Int_t j = 0; j < rep; j++) {
