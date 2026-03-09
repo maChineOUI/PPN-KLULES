@@ -1,0 +1,79 @@
+==============================
+FULL SYSTEM SPECIFICATIONS
+==============================
+
+--- [CPU INFO (lscpu)] ---
+架构：                                   x86_64
+CPU 运行模式：                           32-bit, 64-bit
+Address sizes:                           48 bits physical, 48 bits virtual
+字节序：                                 Little Endian
+CPU:                                     32
+在线 CPU 列表：                          0-31
+厂商 ID：                                AuthenticAMD
+型号名称：                               AMD Ryzen 9 7940HX with Radeon Graphics
+CPU 系列：                               25
+型号：                                   97
+每个核的线程数：                         2
+每个座的核数：                           16
+座：                                     1
+步进：                                   2
+Frequency boost:                         enabled
+CPU(s) scaling MHz:                      46%
+CPU 最大 MHz：                           5314.2139
+CPU 最小 MHz：                           416.1740
+BogoMIPS：                               4790.90
+标记：                                   fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ht syscall nx mmxext fxsr_opt pdpe1gb rdtscp lm constant_tsc rep_good amd_lbr_v2 nopl xtopology nonstop_tsc cpuid extd_apicid aperfmperf rapl pni pclmulqdq monitor ssse3 fma cx16 sse4_1 sse4_2 x2apic movbe popcnt aes xsave avx f16c rdrand lahf_lm cmp_legacy svm extapic cr8_legacy abm sse4a misalignsse 3dnowprefetch osvw ibs skinit wdt tce topoext perfctr_core perfctr_nb bpext perfctr_llc mwaitx cpuid_fault cpb cat_l3 cdp_l3 hw_pstate ssbd mba perfmon_v2 ibrs ibpb stibp ibrs_enhanced vmmcall fsgsbase bmi1 avx2 smep bmi2 erms invpcid cqm rdt_a avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves cqm_llc cqm_occup_llc cqm_mbm_total cqm_mbm_local user_shstk avx512_bf16 clzero irperf xsaveerptr rdpru wbnoinvd cppc arat npt lbrv svm_lock nrip_save tsc_scale vmcb_clean flushbyasid decodeassists pausefilter pfthreshold avic vgif x2avic v_spec_ctrl vnmi avx512vbmi umip pku ospke avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg avx512_vpopcntdq rdpid overflow_recov succor smca fsrm flush_l1d amd_lbr_pmc_freeze
+虚拟化：                                 AMD-V
+L1d 缓存：                               512 KiB (16 instances)
+L1i 缓存：                               512 KiB (16 instances)
+L2 缓存：                                16 MiB (16 instances)
+L3 缓存：                                64 MiB (2 instances)
+NUMA 节点：                              1
+NUMA 节点0 CPU：                         0-31
+Vulnerability Gather data sampling:      Not affected
+Vulnerability Ghostwrite:                Not affected
+Vulnerability Indirect target selection: Not affected
+Vulnerability Itlb multihit:             Not affected
+Vulnerability L1tf:                      Not affected
+Vulnerability Mds:                       Not affected
+Vulnerability Meltdown:                  Not affected
+Vulnerability Mmio stale data:           Not affected
+Vulnerability Old microcode:             Not affected
+Vulnerability Reg file data sampling:    Not affected
+Vulnerability Retbleed:                  Not affected
+Vulnerability Spec rstack overflow:      Mitigation; Safe RET
+Vulnerability Spec store bypass:         Mitigation; Speculative Store Bypass disabled via prctl
+Vulnerability Spectre v1:                Mitigation; usercopy/swapgs barriers and __user pointer sanitization
+Vulnerability Spectre v2:                Mitigation; Enhanced / Automatic IBRS; IBPB conditional; STIBP always-on; PBRSB-eIBRS Not affected; BHI Not affected
+Vulnerability Srbds:                     Not affected
+Vulnerability Tsa:                       Vulnerable: No microcode
+Vulnerability Tsx async abort:           Not affected
+Vulnerability Vmscape:                   Mitigation; IBPB before exit to userspace
+
+--- [MEMORY INFO (dmidecode)] ---
+Size: 16 GB
+	Type: DDR5
+	Type Detail: Synchronous Unbuffered (Unregistered)
+	Speed: 5600 MT/s
+	Rank: 1
+	Configured Memory Speed: 4800 MT/s
+	Size: 16 GB
+	Type: DDR5
+	Type Detail: Synchronous Unbuffered (Unregistered)
+	Speed: 5600 MT/s
+	Rank: 1
+	Configured Memory Speed: 4800 MT/s
+
+--- [OS & KERNEL] ---
+OS: Linux-6.17.0-14-generic-x86_64-with-glibc2.39
+Kernel: 6.17.0-14-generic
+Hostname: fzj
+
+--- [COMPILER & FLAGS] ---
+Compiler Path: /usr/bin/g++-13
+g++-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+Build Mode: Release
+
+--- [HPC TUNING] ---
+CPU Governor: performance
+Scaling Driver: amd-pstate-epp
