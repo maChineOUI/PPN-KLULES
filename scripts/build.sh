@@ -2,6 +2,9 @@
 # LULESH Build Script: Compatible with macOS (Apple Silicon) and Linux (Ubuntu)
 set -euo pipefail
 
+# --- 0. Passer automatiquement au répertoire racine PPN-KLULES ---
+cd "$(dirname "$0")/.." || { echo "Failed to switch to root directory"; exit 1; }
+
 # --- Parameters ---
 # Argument 1: Build type (Release/Debug), default: Release
 BUILD_TYPE="${1:-Release}"
