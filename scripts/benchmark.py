@@ -24,8 +24,8 @@ FLAMEGRAPH_PATH = "/home/fzj/桌面/ppn/new/lulesh_3.3/PPN-KLULES/FlameGraph"
 TEST_MODE = False  # True=小规模测试, False=全量测试
 
 if TEST_MODE:
-    SIZES = [30, 45, 60]  # 小规模测试只选取前三个问题规模
-    THREADS_LIST = [1, 4,8, 16]  # 小规模测试只选取部分线程数
+    SIZES = [30, 45]  # 小规模测试只选取前三个问题规模
+    THREADS_LIST = [1, 4, 8, 16]  # 小规模测试只选取部分线程数
     REPEATS = 2
     PERF_SIZES = [30]     # 小规模测试只采样一个问题规模
     PERF_ITERS = 10
