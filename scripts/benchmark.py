@@ -21,7 +21,7 @@ FLAMEGRAPH_PATH = "/home/fzj/桌面/ppn/new/lulesh_3.3/PPN-KLULES/FlameGraph"
 
 # -----------------------------
 # TEST_MODE 开关
-TEST_MODE = False  # True=小规模测试, False=全量测试
+TEST_MODE = True  # True=小规模测试, False=全量测试
 
 if TEST_MODE:
     SIZES = [30, 45]  # 小规模测试只选取前三个问题规模
@@ -238,5 +238,96 @@ for ver, path in VERSIONS.items():
             print(f"Flamegraph completed: {flamegraph_svg}")
         except subprocess.CalledProcessError as e:
             print(f"Error during profiling {ver} size {s}: {e}")
+
+# =============================
+# 新增: Scaling 分析 (在原脚本基础上)
+SCALING_DIR = os.path.join(OUT_DIR, "scaling_results")
+os.makedirs(SCALING_DIR, exist_ok=True)
+
+# -----------------------------
+# Strong Scaling
+strong_records = []
+df_summary = pd.DataFrame(summary_results)  # 使用原脚本生成的 summary 数据
+for ver in df_summary['Version'].unique():
+    for s in df_summary['Size'].unique():
+        single_thread_time = df_summary[(df_summary['Version']==ver) & 
+                                        (df_summary['Size']==s) & 
+                                        (df_summary['Threads']==1)]['Mean_Time'].values[0]
+        for t in df_summary['Threads'].unique():
+            t_time = df_summary[(df_summary['Version']==ver) & 
+                                (df_summary['Size']==s) & 
+                                (df_summary['Threads']==t)]['Mean_Time'].values[0]
+            speedup = single_thread_time / t_time
+            parallel_eff = speedup / t
+            strong_records.append({
+                "Version": ver,
+                "Size": s,
+                "Threads": t,
+                "Mean_Time": t_time,
+                "Speedup": round(speedup,4),
+                "Parallel_Efficiency": round(parallel_eff,4)
+            })
+df_strong = pd.DataFrame(strong_records)
+df_strong_file = os.path.join(SCALING_DIR, "strong_scaling.csv")
+df_strong.to_csv(df_strong_file, index=False)
+print(f"[Scaling] Strong scaling 数据已保存: {df_strong_file}")
+
+# -----------------------------
+# Weak Scaling
+# 假设每线程问题规模 = size
+weak_records = []
+for ver in df_summary['Version'].unique():
+    for base_size in SIZES:  # 这里使用原来的 SIZES 作为每线程工作量
+        for t in THREADS_LIST:
+            total_size = base_size * t
+            # 找 summary 中最接近 total_size 的 size
+            closest_size = min(df_summary['Size'].unique(), key=lambda x: abs(x - total_size))
+            mean_time = df_summary[(df_summary['Version']==ver) & 
+                                   (df_summary['Size']==closest_size) & 
+                                   (df_summary['Threads']==t)]['Mean_Time'].values
+            mean_time = mean_time[0] if len(mean_time) > 0 else None
+            weak_records.append({
+                "Version": ver,
+                "Base_Size_per_Thread": base_size,
+                "Threads": t,
+                "Total_Size": total_size,
+                "Mean_Time": mean_time
+            })
+
+df_weak = pd.DataFrame(weak_records)
+df_weak_file = os.path.join(SCALING_DIR, "weak_scaling.csv")
+df_weak.to_csv(df_weak_file, index=False)
+print(f"[Scaling] Weak scaling 数据已保存: {df_weak_file}")
+
+# -----------------------------
+# 可选绘图
+for ver in VERSIONS.keys():
+    plt.figure()
+    df_v = df_strong[df_strong['Version']==ver]
+    for s in SIZES:
+        df_s = df_v[df_v['Size']==s]
+        plt.plot(df_s['Threads'], df_s['Speedup'], marker='o', label=f"Size={s}")
+    plt.xlabel("Threads")
+    plt.ylabel("Speedup")
+    plt.title(f"{ver} Strong Scaling")
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(os.path.join(SCALING_DIR, f"{ver}_strong_scaling.png"))
+    plt.close()
+
+    plt.figure()
+    df_v = df_weak[df_weak['Version']==ver]
+    for base in SIZES:
+        df_b = df_v[df_v['Base_Size_per_Thread']==base]
+        plt.plot(df_b['Threads'], df_b['Mean_Time'], marker='o', label=f"BaseSize={base}")
+    plt.xlabel("Threads")
+    plt.ylabel("Mean Time")
+    plt.title(f"{ver} Weak Scaling")
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(os.path.join(SCALING_DIR, f"{ver}_weak_scaling.png"))
+    plt.close()
+
+print(f"[Scaling] 图表已生成在 {SCALING_DIR}")
 
 print(f"\n[全流程完成] 结果已保存到: {OUT_DIR}")
