@@ -1,0 +1,7 @@
+Correctness baselines for LULESH regression testing.
+
+Reference output (-s 10 -i 50):
+  Final Origin Energy = 8.104796e+04
+
+To verify:
+  OMP_PROC_BIND=close ./build/release/lulesh2.0 -s 10 -i 50
