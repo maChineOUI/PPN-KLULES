@@ -160,12 +160,16 @@ void VerifyAndWriteFinalOutput(Real_t elapsed_time,
    Real_t grindTime1 = ((elapsed_time*1e6)/locDom.cycle())/(nx*nx*nx);
    Real_t grindTime2 = ((elapsed_time*1e6)/locDom.cycle())/(nx*nx*nx*numRanks);
 
+   /* Mirror energy array to host — m_e lives in device memory (CudaSpace on GPU). */
+   auto e_h = Kokkos::create_mirror_view(locDom.m_elems.m_e);
+   Kokkos::deep_copy(e_h, locDom.m_elems.m_e);
+
    Index_t ElemId = 0;
    printf("Run completed:  \n");
    printf("   Problem size        =  %i \n",    nx);
    printf("   MPI tasks           =  %i \n",    numRanks);
    printf("   Iteration count     =  %i \n",    locDom.cycle());
-   printf("   Final Origin Energy = %12.6e \n", locDom.e(ElemId));
+   printf("   Final Origin Energy = %12.6e \n", e_h(ElemId));
 
    Real_t   MaxAbsDiff = Real_t(0.0);
    Real_t TotalAbsDiff = Real_t(0.0);
@@ -173,12 +177,12 @@ void VerifyAndWriteFinalOutput(Real_t elapsed_time,
 
    for (Index_t j=0; j<nx; ++j) {
       for (Index_t k=j+1; k<nx; ++k) {
-         Real_t AbsDiff = std::fabs(locDom.e(j*nx+k)-locDom.e(k*nx+j));
+         Real_t AbsDiff = std::fabs(e_h(j*nx+k) - e_h(k*nx+j));
          TotalAbsDiff  += AbsDiff;
 
          if (MaxAbsDiff <AbsDiff) MaxAbsDiff = AbsDiff;
 
-         Real_t RelDiff = AbsDiff / locDom.e(k*nx+j);
+         Real_t RelDiff = AbsDiff / e_h(k*nx+j);
 
          if (MaxRelDiff <RelDiff)  MaxRelDiff = RelDiff;
       }
