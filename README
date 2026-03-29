@@ -235,7 +235,10 @@ OMP_PROC_BIND=close ./build/lulesh2.0 -s 10 -i 50
 | 设备端数学函数：`std::sqrt/fabs/cbrt/max` → `Kokkos::*` | ✓ |
 | CMake 自动检测 CUDA 后端；nvcc_wrapper/g++ 双路径处理 | ✓ |
 | OpenMP 后端正确性验证 | ✓ `8.104796e+04` |
-| CUDA 后端实测（Linux + NVIDIA GPU） | 待完成 |
+| `regElemList` 宿主指针 → HostSpace View + `deep_copy`（`lulesh-eos.cc`） | ✓ |
+| 初始化函数全量宿主端 View 访问修复（`create_mirror_view` + `deep_copy`） | ✓ |
+| `CalcQForElems` QStop 检查 → 设备端 `parallel_reduce`（`lulesh-viscosity.cc`） | ✓ |
+| CUDA 后端实测（Linux + NVIDIA GPU，数值验证） | 待完成 |
 
 ---
 
