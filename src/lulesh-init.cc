@@ -90,6 +90,15 @@ Domain::Domain(Int_t numRanks, Index_t colLoc,
    // simulate effects of ALE on the lagrange solver
    CreateRegionIndexSets(nr, balance);
 
+   // P1: Upload per-region element lists to device memory once.
+   // EvalEOSForElems can then use these Views directly without per-call deep_copy.
+   m_conn.m_regElemlist_d.resize(numReg());
+   for (Int_t r = 0; r < numReg(); ++r) {
+      Kokkos::View<const Index_t*, Kokkos::HostSpace> h(m_conn.m_regElemlist[r].data(), regElemSize(r));
+      m_conn.m_regElemlist_d[r] = Kokkos::View<Index_t*>("regElemList_r", regElemSize(r));
+      Kokkos::deep_copy(m_conn.m_regElemlist_d[r], h);
+   }
+
    // Pre-allocate EOS temporaries to max region size (avoids ~11,000 malloc/free
    // per run for -s 45 -i 200 with 11 regions).
    {
@@ -97,6 +106,15 @@ Domain::Domain(Int_t numRanks, Index_t colLoc,
       for (Int_t r = 0; r < nr; ++r)
          if (regElemSize(r) > maxRegSize) maxRegSize = regElemSize(r);
       m_elems.m_eosTemps.reserve(maxRegSize);
+   }
+
+   // P1: Pre-allocate per-step scratch Views (eliminates ~28 cudaMalloc/cudaFree per step).
+   {
+      Int_t allElem = numElem()
+                    + 2*sizeX()*sizeY()
+                    + 2*sizeX()*sizeZ()
+                    + 2*sizeY()*sizeZ();
+      AllocateScratch(numElem(), allElem);
    }
 
    // Setup symmetry nodesets

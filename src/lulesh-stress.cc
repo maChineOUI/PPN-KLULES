@@ -25,15 +25,10 @@ void IntegrateStressForElems( Domain& domain,
                               Kokkos::View<Real_t*> determ,
                               Index_t numElem, Index_t numNode)
 {
-   Index_t numElem8 = numElem * 8 ;
-
-   // Scatter buffers: each element writes to its own 8-slot block,
-   // eliminating node-level write conflicts between parallel threads.
-   // Using Kokkos::View so the buffer lives in the execution space memory
-   // (device memory on GPU, host memory on CPU).
-   Kokkos::View<Real_t*> fx_elem("fx_elem", numElem8) ;
-   Kokkos::View<Real_t*> fy_elem("fy_elem", numElem8) ;
-   Kokkos::View<Real_t*> fz_elem("fz_elem", numElem8) ;
+   // Scatter buffers: pre-allocated scratch Views (P1 — no per-step cudaMalloc).
+   auto& fx_elem = domain.m_elems.m_scratch.m_fx_elem ;
+   auto& fy_elem = domain.m_elems.m_scratch.m_fy_elem ;
+   auto& fz_elem = domain.m_elems.m_scratch.m_fz_elem ;
 
    // Extract Views for KOKKOS_LAMBDA
    auto nodelist_v = domain.m_conn.m_nodelist ;
@@ -154,7 +149,6 @@ void CalcHourglassControlForElems(Domain& domain,
                                   Kokkos::View<Real_t*> determ, Real_t hgcoef)
 {
    Index_t numElem  = domain.numElem() ;
-   Index_t numElem8 = numElem * 8 ;
 
    // Hourglass gamma matrix (Flanagan-Belytschko)
    const Real_t gamma[4][8] = {
@@ -182,10 +176,10 @@ void CalcHourglassControlForElems(Domain& domain,
    auto elemMass_v = domain.m_elems.m_elemMass ;
 
    if (hgcoef > Real_t(0.)) {
-      // Scatter buffers for hourglass forces
-      Kokkos::View<Real_t*> fx_elem("hg_fx_elem", numElem8) ;
-      Kokkos::View<Real_t*> fy_elem("hg_fy_elem", numElem8) ;
-      Kokkos::View<Real_t*> fz_elem("hg_fz_elem", numElem8) ;
+      // Scatter buffers: pre-allocated scratch Views (P1 — no per-step cudaMalloc).
+      auto& fx_elem = domain.m_elems.m_scratch.m_hg_fx ;
+      auto& fy_elem = domain.m_elems.m_scratch.m_hg_fy ;
+      auto& fz_elem = domain.m_elems.m_scratch.m_hg_fz ;
 
       /* Fused loop: volume derivatives + FB hourglass scatter */
       Kokkos::parallel_for("CalcHourglassControlForElems", numElem,
@@ -313,9 +307,8 @@ void CalcVolumeForceForElems(Domain& domain)
    if (numElem != 0) {
       Real_t hgcoef = domain.hgcoef() ;
 
-      // determ: Jacobian determinant per element — Kokkos::View so GPU kernels
-      // (IntegrateStress scatter/check, CalcHourglass) can access it.
-      Kokkos::View<Real_t*> determ("determ", numElem) ;
+      // determ: pre-allocated scratch View (P1 — no per-step cudaMalloc).
+      auto& determ = domain.m_elems.m_scratch.m_determ ;
 
       IntegrateStressForElems(domain, determ, numElem, domain.numNode()) ;
 

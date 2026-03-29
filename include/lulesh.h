@@ -63,44 +63,12 @@ class Domain {
           Index_t rowLoc, Index_t planeLoc,
           Index_t nx, Int_t tp, Int_t nr, Int_t balance, Int_t cost);
 
-   // Temporary field allocation (called from kinematics/viscosity modules)
-   void AllocateGradients(Int_t numElem, Int_t allElem)
-   {
-      // Position gradients
-      m_elems.m_delx_xi   = Kokkos::View<Real_t*>("delx_xi",   numElem);
-      m_elems.m_delx_eta  = Kokkos::View<Real_t*>("delx_eta",  numElem);
-      m_elems.m_delx_zeta = Kokkos::View<Real_t*>("delx_zeta", numElem);
-
-      // Velocity gradients
-      m_elems.m_delv_xi   = Kokkos::View<Real_t*>("delv_xi",   allElem);
-      m_elems.m_delv_eta  = Kokkos::View<Real_t*>("delv_eta",  allElem);
-      m_elems.m_delv_zeta = Kokkos::View<Real_t*>("delv_zeta", allElem);
-   }
-
-   void DeallocateGradients()
-   {
-      m_elems.m_delx_zeta = Kokkos::View<Real_t*>();
-      m_elems.m_delx_eta  = Kokkos::View<Real_t*>();
-      m_elems.m_delx_xi   = Kokkos::View<Real_t*>();
-
-      m_elems.m_delv_zeta = Kokkos::View<Real_t*>();
-      m_elems.m_delv_eta  = Kokkos::View<Real_t*>();
-      m_elems.m_delv_xi   = Kokkos::View<Real_t*>();
-   }
-
-   void AllocateStrains(Int_t numElem)
-   {
-      m_elems.m_dxx = Kokkos::View<Real_t*>("dxx", numElem);
-      m_elems.m_dyy = Kokkos::View<Real_t*>("dyy", numElem);
-      m_elems.m_dzz = Kokkos::View<Real_t*>("dzz", numElem);
-   }
-
-   void DeallocateStrains()
-   {
-      m_elems.m_dzz = Kokkos::View<Real_t*>();
-      m_elems.m_dyy = Kokkos::View<Real_t*>();
-      m_elems.m_dxx = Kokkos::View<Real_t*>();
-   }
+   // Gradient/strain Views are now pre-allocated in the constructor (P1 optimisation).
+   // These methods are kept as no-ops so call sites in kinematics/viscosity need no change.
+   void AllocateGradients(Int_t /*numElem*/, Int_t /*allElem*/) {}
+   void DeallocateGradients() {}
+   void AllocateStrains(Int_t /*numElem*/) {}
+   void DeallocateStrains() {}
 
    //
    // ACCESSORS
@@ -147,6 +115,7 @@ class Domain {
    Index_t*  regNumList()            { return m_conn.m_regNumList.data() ; }
    Index_t*  regElemlist(Int_t r)    { return m_conn.m_regElemlist[r].data() ; }
    Index_t&  regElemlist(Int_t r, Index_t idx) { return m_conn.m_regElemlist[r][idx] ; }
+   Kokkos::View<Index_t*>& regElemlistDevice(Int_t r) { return m_conn.m_regElemlist_d[r]; }
 
    Index_t*  nodelist(Index_t idx)    { return m_conn.m_nodelist.data() + Index_t(8)*idx ; }
 
@@ -296,6 +265,7 @@ class Domain {
       Kokkos::View<Index_t*, Kokkos::HostSpace> m_regElemSize;  /* size of region sets — host-only */
       Kokkos::View<Index_t*, Kokkos::HostSpace> m_regNumList;  /* region number per domain element — host-only */
       std::vector<std::vector<Index_t>> m_regElemlist; /* region indexset (jagged — keep as host vector) */
+      std::vector<Kokkos::View<Index_t*>> m_regElemlist_d; /* device copies of per-region element lists (P1) */
       Kokkos::View<Index_t*> m_nodeElemStart;      /* node-element index start (CSR row ptr) */
       Kokkos::View<Index_t*> m_nodeElemCornerList; /* node-element corner list (CSR col idx) */
    } m_conn;
@@ -316,6 +286,26 @@ class Domain {
       /* EOS temporaries: pre-allocated to maxRegionSize, reused each timestep.
          Region loops are serial, so one shared buffer is safe (no data race).
          Stored as Kokkos::View so kernels can capture by value ([=]) on GPU. */
+      /* Per-step scratch Views: pre-allocated once in constructor, reused every
+         timestep.  Eliminates ~28 cudaMalloc/cudaFree per step (P1 optimisation). */
+      struct ScratchViews {
+         Kokkos::View<Real_t*> m_vnew;                            /* relative volume (numElem) */
+         Kokkos::View<Real_t*> m_determ;                          /* Jacobian det   (numElem) */
+         Kokkos::View<Real_t*> m_fx_elem, m_fy_elem, m_fz_elem;  /* stress scatter (numElem*8) */
+         Kokkos::View<Real_t*> m_hg_fx,   m_hg_fy,   m_hg_fz;   /* hourglass scatter (numElem*8) */
+         void reserve(Index_t numElem) {
+            m_vnew    = Kokkos::View<Real_t*>("vnew",    numElem);
+            m_determ  = Kokkos::View<Real_t*>("determ",  numElem);
+            Index_t n8 = numElem * 8;
+            m_fx_elem = Kokkos::View<Real_t*>("fx_elem", n8);
+            m_fy_elem = Kokkos::View<Real_t*>("fy_elem", n8);
+            m_fz_elem = Kokkos::View<Real_t*>("fz_elem", n8);
+            m_hg_fx   = Kokkos::View<Real_t*>("hg_fx",   n8);
+            m_hg_fy   = Kokkos::View<Real_t*>("hg_fy",   n8);
+            m_hg_fz   = Kokkos::View<Real_t*>("hg_fz",   n8);
+         }
+      } m_scratch;
+
       struct EosTemps {
          Kokkos::View<Real_t*> e_old, delvc, p_old, q_old;
          Kokkos::View<Real_t*> compression, compHalfStep;
@@ -397,6 +387,24 @@ class Domain {
       m_elems.m_arealg   = Kokkos::View<Real_t*>("arealg",   numElem);
       m_elems.m_ss       = Kokkos::View<Real_t*>("ss",       numElem);
       m_elems.m_elemMass = Kokkos::View<Real_t*>("elemMass", numElem);
+   }
+
+   void AllocateScratch(Int_t numElem, Int_t allElem)
+   {
+      // Principal strains (previously allocated/freed each kinematics step)
+      m_elems.m_dxx       = Kokkos::View<Real_t*>("dxx",       numElem);
+      m_elems.m_dyy       = Kokkos::View<Real_t*>("dyy",       numElem);
+      m_elems.m_dzz       = Kokkos::View<Real_t*>("dzz",       numElem);
+      // Position gradients (numElem)
+      m_elems.m_delx_xi   = Kokkos::View<Real_t*>("delx_xi",   numElem);
+      m_elems.m_delx_eta  = Kokkos::View<Real_t*>("delx_eta",  numElem);
+      m_elems.m_delx_zeta = Kokkos::View<Real_t*>("delx_zeta", numElem);
+      // Velocity gradients (allElem includes ghost halo)
+      m_elems.m_delv_xi   = Kokkos::View<Real_t*>("delv_xi",   allElem);
+      m_elems.m_delv_eta  = Kokkos::View<Real_t*>("delv_eta",  allElem);
+      m_elems.m_delv_zeta = Kokkos::View<Real_t*>("delv_zeta", allElem);
+      // vnew / determ / scatter buffers
+      m_elems.m_scratch.reserve(numElem);
    }
 
    void BuildMesh(Int_t nx, Int_t edgeNodes, Int_t edgeElems);

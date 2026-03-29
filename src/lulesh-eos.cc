@@ -119,7 +119,8 @@ void CalcEnergyForElems(Kokkos::View<Real_t*> p_new,
 
 static inline
 void EvalEOSForElems(Domain& domain, Kokkos::View<Real_t*> vnewc,
-                     Int_t numElemReg, Index_t *regElemRaw, Int_t rep)
+                     Kokkos::View<Index_t*> regElemList, /* pre-uploaded device View (P1) */
+                     Int_t numElemReg, Int_t rep)
 {
    Real_t  e_cut = domain.e_cut() ;
    Real_t  p_cut = domain.p_cut() ;
@@ -133,14 +134,6 @@ void EvalEOSForElems(Domain& domain, Kokkos::View<Real_t*> vnewc,
 
    // Reuse pre-allocated EOS temporaries from Domain
    auto& t = domain.eosTemps();
-
-   // Copy region element list from host to device.
-   // HostSpace unmanaged view wraps the raw pointer without allocation;
-   // deep_copy transfers to the default execution space (CudaSpace on GPU,
-   // HostSpace on OpenMP — in both cases a correct, accessible device view).
-   Kokkos::View<const Index_t*, Kokkos::HostSpace> regElemList_h(regElemRaw, numElemReg) ;
-   Kokkos::View<Index_t*> regElemList("regElemList", numElemReg) ;
-   Kokkos::deep_copy(regElemList, regElemList_h) ;
 
    // Extract domain Views needed by scatter kernels
    auto e_v    = domain.m_elems.m_e ;
@@ -244,8 +237,7 @@ void ApplyMaterialPropertiesForElems(Domain& domain, Kokkos::View<Real_t*> vnew)
     });
 
     for (Int_t r = 0; r < domain.numReg(); r++) {
-       Index_t numElemReg  = domain.regElemSize(r) ;
-       Index_t *regElemRaw = domain.regElemlist(r) ;
+       Index_t numElemReg = domain.regElemSize(r) ;
        Int_t rep ;
        if (r < domain.numReg()/2)
           rep = 1 ;
@@ -253,7 +245,7 @@ void ApplyMaterialPropertiesForElems(Domain& domain, Kokkos::View<Real_t*> vnew)
           rep = 1 + domain.cost() ;
        else
           rep = 10 * (1 + domain.cost()) ;
-       EvalEOSForElems(domain, vnew, numElemReg, regElemRaw, rep) ;
+       EvalEOSForElems(domain, vnew, domain.regElemlistDevice(r), numElemReg, rep) ;
     }
   }
 }
