@@ -1,0 +1,12 @@
+[ 36%] Building CXX object CMakeFiles/lulesh.dir/src/lulesh-kinematics.cc.o
+[ 36%] Building CXX object CMakeFiles/lulesh.dir/apps/lulesh_main.cc.o
+[ 36%] Building CXX object CMakeFiles/lulesh.dir/src/lulesh-nodal.cc.o
+[ 36%] Building CXX object CMakeFiles/lulesh.dir/src/lulesh-stress.cc.o
+[ 45%] Building CXX object CMakeFiles/lulesh.dir/src/lulesh-viscosity.cc.o
+[ 54%] Building CXX object CMakeFiles/lulesh.dir/src/lulesh-timestep.cc.o
+[ 63%] Building CXX object CMakeFiles/lulesh.dir/src/lulesh-eos.cc.o
+[ 72%] Building CXX object CMakeFiles/lulesh.dir/src/lulesh-util.cc.o
+[ 81%] Building CXX object CMakeFiles/lulesh.dir/src/lulesh-integration.cc.o
+[ 90%] Building CXX object CMakeFiles/lulesh.dir/src/lulesh-init.cc.o
+[100%] Linking CXX executable lulesh2.0
+[100%] Built target lulesh

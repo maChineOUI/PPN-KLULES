@@ -55,11 +55,11 @@ fi
 # -----------------------------------------------------------------------------
 # 1. 参数解析（支持 --key value 风格覆盖默认值）
 # -----------------------------------------------------------------------------
-KOKKOS_SRC="${HOME}/kokkos"
+KOKKOS_SRC="/home/fzj/桌面/kokkos"
 KOKKOS_INSTALL="${HOME}/kokkos_cuda_install"
 KOKKOS_BUILD="/tmp/kokkos-build"
-KOKKOS_ARCH="AMPERE80"
-CUDA_ARCH="80"
+KOKKOS_ARCH="ADALOVE89"   # RTX 4070 对应架构
+CUDA_ARCH="89"            # 数字形式 sm_89
 LULESH_BUILD="./build-cuda"
 SKIP_KOKKOS=0
 
@@ -264,7 +264,7 @@ echo ""
 echo "正在运行正确性验证（-s 10 -i 50）..."
 echo ""
 
-"${BINARY}" -s 10 -i 50
+"${BINARY}" -s 30 -i 100
 
 echo ""
 echo "期望输出: Final Origin Energy = 8.104796e+04"
