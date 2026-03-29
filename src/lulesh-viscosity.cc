@@ -306,16 +306,19 @@ void CalcQForElems(Domain& domain, Kokkos::View<Real_t*> vnew)
       // Free up memory
       domain.DeallocateGradients();
 
-      /* Don't allow excessive artificial viscosity */
-      Index_t idx = -1;
-      for (Index_t i=0; i<numElem; ++i) {
-         if ( domain.q(i) > domain.qstop() ) {
-            idx = i ;
-            break ;
-         }
-      }
+      /* Don't allow excessive artificial viscosity.
+         m_q lives in device memory (CudaSpace on GPU); use a device-side
+         parallel_reduce instead of a host-side loop. */
+      auto q_v = domain.m_elems.m_q ;
+      const Real_t qstop = domain.qstop() ;
+      Index_t exceeded = 0 ;
+      Kokkos::parallel_reduce("QStopCheck", numElem,
+         KOKKOS_LAMBDA(Index_t i, Index_t& flag) {
+            if (q_v(i) > qstop) flag = 1 ;
+         },
+         Kokkos::Max<Index_t>(exceeded)) ;
 
-      if(idx >= 0) {
+      if (exceeded > 0) {
          exit(QStopError);
       }
    }
