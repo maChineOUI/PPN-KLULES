@@ -42,9 +42,17 @@ void IntegrateStressForElems( Domain& domain,
    auto fy_v       = domain.m_nodes.m_fy ;
    auto fz_v       = domain.m_nodes.m_fz ;
 
-   auto fx_scatter = Kokkos::Experimental::create_scatter_view(fx_v) ;
-   auto fy_scatter = Kokkos::Experimental::create_scatter_view(fy_v) ;
-   auto fz_scatter = Kokkos::Experimental::create_scatter_view(fz_v) ;
+   /* P2-B fix: ScatterNonDuplicated+ScatterAtomic → atomicAdd on CUDA,
+      eliminates the separate contribute kernel (was 93% DRAM bandwidth). */
+   using node_sv_t = Kokkos::Experimental::ScatterView<Real_t*,
+       typename decltype(fx_v)::array_layout,
+       typename decltype(fx_v)::execution_space,
+       Kokkos::Experimental::ScatterSum,
+       Kokkos::Experimental::ScatterNonDuplicated,
+       Kokkos::Experimental::ScatterAtomic>;
+   node_sv_t fx_scatter(fx_v) ;
+   node_sv_t fy_scatter(fy_v) ;
+   node_sv_t fz_scatter(fz_v) ;
 
    Kokkos::parallel_for("IntegrateStressForElems", numElem,
                         KOKKOS_LAMBDA(Index_t k) {
@@ -169,15 +177,21 @@ void CalcHourglassControlForElems(Domain& domain,
    auto fz_v       = domain.m_nodes.m_fz ;
 
    if (hgcoef > Real_t(0.)) {
-      /* P2-B: ScatterView — scatter hourglass forces directly to node forces.
-         Replaces hg_fx/fy/fz scratch buffers + separate gather kernel.
-         P2-A: LaunchBounds<256,2> → compiler targets ≤128 regs/thread (was 168)
-               → SM occupancy 25% → 50%+; no-op on CPU backends. */
-      auto fx_scatter = Kokkos::Experimental::create_scatter_view(fx_v) ;
-      auto fy_scatter = Kokkos::Experimental::create_scatter_view(fy_v) ;
-      auto fz_scatter = Kokkos::Experimental::create_scatter_view(fz_v) ;
+      /* P2-B fix: ScatterNonDuplicated+ScatterAtomic → atomicAdd on CUDA,
+         eliminates contribute kernel (was 93% DRAM bandwidth).
+         P2-A fix: LaunchBounds<128,4> → 4×128×R ≤ 65536 → R ≤ 128
+                   forces register spilling from 168 → ≤128, occupancy 25% → 50%+. */
+      using sv_hg_t = Kokkos::Experimental::ScatterView<Real_t*,
+          typename decltype(fx_v)::array_layout,
+          typename decltype(fx_v)::execution_space,
+          Kokkos::Experimental::ScatterSum,
+          Kokkos::Experimental::ScatterNonDuplicated,
+          Kokkos::Experimental::ScatterAtomic>;
+      sv_hg_t fx_scatter(fx_v) ;
+      sv_hg_t fy_scatter(fy_v) ;
+      sv_hg_t fz_scatter(fz_v) ;
 
-      using hg_policy_t = Kokkos::RangePolicy<Kokkos::LaunchBounds<256, 2>>;
+      using hg_policy_t = Kokkos::RangePolicy<Kokkos::LaunchBounds<128, 4>>;
       Kokkos::parallel_for("CalcHourglassControlForElems", hg_policy_t(0, numElem),
                            KOKKOS_LAMBDA(Index_t i) {
          Real_t x1[8], y1[8], z1[8] ;

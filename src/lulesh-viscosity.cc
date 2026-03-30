@@ -23,7 +23,9 @@ void CalcMonotonicQGradientsForElems(Domain& domain, Kokkos::View<Real_t*> vnew)
    auto delv_xi_v   = domain.m_elems.m_delv_xi ;
    auto delv_eta_v  = domain.m_elems.m_delv_eta ;
 
-   Kokkos::parallel_for("CalcMonotonicQGradientsForElems", numElem,
+   // P2-D: LaunchBounds<128,4> → R ≤ 128 (was 118 regs → 33% occupancy → 50%+)
+   using mono_policy_t = Kokkos::RangePolicy<Kokkos::LaunchBounds<128, 4>>;
+   Kokkos::parallel_for("CalcMonotonicQGradientsForElems", mono_policy_t(0, numElem),
                         KOKKOS_LAMBDA(Index_t i) {
       const Real_t ptiny = Real_t(1.e-36) ;
       Real_t ax,ay,az ;
