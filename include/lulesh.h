@@ -287,22 +287,15 @@ class Domain {
          Region loops are serial, so one shared buffer is safe (no data race).
          Stored as Kokkos::View so kernels can capture by value ([=]) on GPU. */
       /* Per-step scratch Views: pre-allocated once in constructor, reused every
-         timestep.  Eliminates ~28 cudaMalloc/cudaFree per step (P1 optimisation). */
+         timestep.  Eliminates ~28 cudaMalloc/cudaFree per step (P1 optimisation).
+         P2-B: fx/fy/fz scatter buffers removed — replaced by Kokkos::ScatterView
+         which uses atomicAdd directly on node force arrays. */
       struct ScratchViews {
-         Kokkos::View<Real_t*> m_vnew;                            /* relative volume (numElem) */
-         Kokkos::View<Real_t*> m_determ;                          /* Jacobian det   (numElem) */
-         Kokkos::View<Real_t*> m_fx_elem, m_fy_elem, m_fz_elem;  /* stress scatter (numElem*8) */
-         Kokkos::View<Real_t*> m_hg_fx,   m_hg_fy,   m_hg_fz;   /* hourglass scatter (numElem*8) */
+         Kokkos::View<Real_t*> m_vnew;    /* relative volume (numElem) */
+         Kokkos::View<Real_t*> m_determ;  /* Jacobian det   (numElem) */
          void reserve(Index_t numElem) {
-            m_vnew    = Kokkos::View<Real_t*>("vnew",    numElem);
-            m_determ  = Kokkos::View<Real_t*>("determ",  numElem);
-            Index_t n8 = numElem * 8;
-            m_fx_elem = Kokkos::View<Real_t*>("fx_elem", n8);
-            m_fy_elem = Kokkos::View<Real_t*>("fy_elem", n8);
-            m_fz_elem = Kokkos::View<Real_t*>("fz_elem", n8);
-            m_hg_fx   = Kokkos::View<Real_t*>("hg_fx",   n8);
-            m_hg_fy   = Kokkos::View<Real_t*>("hg_fy",   n8);
-            m_hg_fz   = Kokkos::View<Real_t*>("hg_fz",   n8);
+            m_vnew   = Kokkos::View<Real_t*>("vnew",   numElem);
+            m_determ = Kokkos::View<Real_t*>("determ", numElem);
          }
       } m_scratch;
 
