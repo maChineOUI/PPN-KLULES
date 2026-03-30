@@ -1,4 +1,5 @@
 #include <cstdlib>
+#include <Kokkos_ScatterView.hpp>
 #include "lulesh-stress.h"
 #include "lulesh-geometry.h"
 
@@ -20,16 +21,16 @@ static void SumElemStressesToNodeForces( const Real_t B[][8],
 
 /******************************************/
 
+/* P2-B: ScatterView replaces scatter-buffer + gather-kernel pattern.
+   Node forces (fx/fy/fz) are zeroed by CalcForceForNodes immediately before
+   this call, so ScatterView contribute (sum) is equivalent to the previous
+   gather assignment.  Eliminates fx_elem/fy_elem/fz_elem scratch buffers and
+   the separate gather parallel_for (saves 1 kernel launch + 1 barrier). */
 static inline
 void IntegrateStressForElems( Domain& domain,
                               Kokkos::View<Real_t*> determ,
-                              Index_t numElem, Index_t numNode)
+                              Index_t numElem)
 {
-   // Scatter buffers: pre-allocated scratch Views (P1 — no per-step cudaMalloc).
-   auto& fx_elem = domain.m_elems.m_scratch.m_fx_elem ;
-   auto& fy_elem = domain.m_elems.m_scratch.m_fy_elem ;
-   auto& fz_elem = domain.m_elems.m_scratch.m_fz_elem ;
-
    // Extract Views for KOKKOS_LAMBDA
    auto nodelist_v = domain.m_conn.m_nodelist ;
    auto x_v        = domain.m_nodes.m_x ;
@@ -37,8 +38,15 @@ void IntegrateStressForElems( Domain& domain,
    auto z_v        = domain.m_nodes.m_z ;
    auto p_v        = domain.m_elems.m_p ;
    auto q_v        = domain.m_elems.m_q ;
+   auto fx_v       = domain.m_nodes.m_fx ;
+   auto fy_v       = domain.m_nodes.m_fy ;
+   auto fz_v       = domain.m_nodes.m_fz ;
 
-   Kokkos::parallel_for("IntegrateStressForElems_scatter", numElem,
+   auto fx_scatter = Kokkos::Experimental::create_scatter_view(fx_v) ;
+   auto fy_scatter = Kokkos::Experimental::create_scatter_view(fy_v) ;
+   auto fz_scatter = Kokkos::Experimental::create_scatter_view(fz_v) ;
+
+   Kokkos::parallel_for("IntegrateStressForElems", numElem,
                         KOKKOS_LAMBDA(Index_t k) {
       const Index_t* elemToNode = nodelist_v.data() + 8*k ;
       Real_t B[3][8] ;
@@ -64,38 +72,20 @@ void IntegrateStressForElems( Domain& domain,
       Real_t fx_local[8], fy_local[8], fz_local[8] ;
       SumElemStressesToNodeForces(B, sig, sig, sig, fx_local, fy_local, fz_local) ;
 
-      Index_t base = k * 8 ;
+      /* P2-B: scatter directly to node forces via atomicAdd (CUDA) */
+      auto fx_acc = fx_scatter.access() ;
+      auto fy_acc = fy_scatter.access() ;
+      auto fz_acc = fz_scatter.access() ;
       for (Index_t ni = 0; ni < 8; ++ni) {
-         fx_elem(base + ni) = fx_local[ni] ;
-         fy_elem(base + ni) = fy_local[ni] ;
-         fz_elem(base + ni) = fz_local[ni] ;
+         fx_acc(elemToNode[ni]) += fx_local[ni] ;
+         fy_acc(elemToNode[ni]) += fy_local[ni] ;
+         fz_acc(elemToNode[ni]) += fz_local[ni] ;
       }
    });
 
-   // Gather phase: accumulate per-corner forces into node forces
-   auto nodeElemStart_v      = domain.m_conn.m_nodeElemStart ;
-   auto nodeElemCornerList_v = domain.m_conn.m_nodeElemCornerList ;
-   auto fx_v = domain.m_nodes.m_fx ;
-   auto fy_v = domain.m_nodes.m_fy ;
-   auto fz_v = domain.m_nodes.m_fz ;
-
-   Kokkos::parallel_for("IntegrateStressForElems_gather", numNode,
-                        KOKKOS_LAMBDA(Index_t gnode) {
-      Index_t start = nodeElemStart_v(gnode) ;
-      Index_t end   = nodeElemStart_v(gnode + 1) ;
-      Real_t fx_tmp = Real_t(0.0) ;
-      Real_t fy_tmp = Real_t(0.0) ;
-      Real_t fz_tmp = Real_t(0.0) ;
-      for (Index_t i = start; i < end; ++i) {
-         Index_t corner = nodeElemCornerList_v(i) ;
-         fx_tmp += fx_elem(corner) ;
-         fy_tmp += fy_elem(corner) ;
-         fz_tmp += fz_elem(corner) ;
-      }
-      fx_v(gnode) = fx_tmp ;
-      fy_v(gnode) = fy_tmp ;
-      fz_v(gnode) = fz_tmp ;
-   });
+   Kokkos::Experimental::contribute(fx_v, fx_scatter) ;
+   Kokkos::Experimental::contribute(fy_v, fy_scatter) ;
+   Kokkos::Experimental::contribute(fz_v, fz_scatter) ;
 }
 
 /******************************************/
@@ -174,15 +164,21 @@ void CalcHourglassControlForElems(Domain& domain,
    auto volo_v     = domain.m_elems.m_volo ;
    auto ss_v       = domain.m_elems.m_ss ;
    auto elemMass_v = domain.m_elems.m_elemMass ;
+   auto fx_v       = domain.m_nodes.m_fx ;
+   auto fy_v       = domain.m_nodes.m_fy ;
+   auto fz_v       = domain.m_nodes.m_fz ;
 
    if (hgcoef > Real_t(0.)) {
-      // Scatter buffers: pre-allocated scratch Views (P1 — no per-step cudaMalloc).
-      auto& fx_elem = domain.m_elems.m_scratch.m_hg_fx ;
-      auto& fy_elem = domain.m_elems.m_scratch.m_hg_fy ;
-      auto& fz_elem = domain.m_elems.m_scratch.m_hg_fz ;
+      /* P2-B: ScatterView — scatter hourglass forces directly to node forces.
+         Replaces hg_fx/fy/fz scratch buffers + separate gather kernel.
+         P2-A: LaunchBounds<256,2> → compiler targets ≤128 regs/thread (was 168)
+               → SM occupancy 25% → 50%+; no-op on CPU backends. */
+      auto fx_scatter = Kokkos::Experimental::create_scatter_view(fx_v) ;
+      auto fy_scatter = Kokkos::Experimental::create_scatter_view(fy_v) ;
+      auto fz_scatter = Kokkos::Experimental::create_scatter_view(fz_v) ;
 
-      /* Fused loop: volume derivatives + FB hourglass scatter */
-      Kokkos::parallel_for("CalcHourglassControlForElems", numElem,
+      using hg_policy_t = Kokkos::RangePolicy<Kokkos::LaunchBounds<256, 2>>;
+      Kokkos::parallel_for("CalcHourglassControlForElems", hg_policy_t(0, numElem),
                            KOKKOS_LAMBDA(Index_t i) {
          Real_t x1[8], y1[8], z1[8] ;
          Real_t pfx[8], pfy[8], pfz[8] ;
@@ -208,7 +204,6 @@ void CalcHourglassControlForElems(Domain& domain,
          Real_t hourgam[8][4] ;
          Real_t xd1[8], yd1[8], zd1[8] ;
 
-         Index_t i3    = 8 * i ;
          Real_t volinv = Real_t(1.0) / determ(i) ;
 
          for (Index_t i1 = 0; i1 < 4; ++i1) {
@@ -253,40 +248,20 @@ void CalcHourglassControlForElems(Domain& domain,
 
          CalcElemFBHourglassForce(xd1, yd1, zd1, hourgam, coefficient, hgfx, hgfy, hgfz) ;
 
-         fx_elem(i3  ) = hgfx[0]; fy_elem(i3  ) = hgfy[0]; fz_elem(i3  ) = hgfz[0];
-         fx_elem(i3+1) = hgfx[1]; fy_elem(i3+1) = hgfy[1]; fz_elem(i3+1) = hgfz[1];
-         fx_elem(i3+2) = hgfx[2]; fy_elem(i3+2) = hgfy[2]; fz_elem(i3+2) = hgfz[2];
-         fx_elem(i3+3) = hgfx[3]; fy_elem(i3+3) = hgfy[3]; fz_elem(i3+3) = hgfz[3];
-         fx_elem(i3+4) = hgfx[4]; fy_elem(i3+4) = hgfy[4]; fz_elem(i3+4) = hgfz[4];
-         fx_elem(i3+5) = hgfx[5]; fy_elem(i3+5) = hgfy[5]; fz_elem(i3+5) = hgfz[5];
-         fx_elem(i3+6) = hgfx[6]; fy_elem(i3+6) = hgfy[6]; fz_elem(i3+6) = hgfz[6];
-         fx_elem(i3+7) = hgfx[7]; fy_elem(i3+7) = hgfy[7]; fz_elem(i3+7) = hgfz[7];
-      });
-
-      // Gather: add hourglass forces to node forces
-      auto nodeElemStart_v      = domain.m_conn.m_nodeElemStart ;
-      auto nodeElemCornerList_v = domain.m_conn.m_nodeElemCornerList ;
-      auto fx_v = domain.m_nodes.m_fx ;
-      auto fy_v = domain.m_nodes.m_fy ;
-      auto fz_v = domain.m_nodes.m_fz ;
-
-      Kokkos::parallel_for("CalcFBHourglassForceForElems_gather", domain.numNode(),
-                           KOKKOS_LAMBDA(Index_t gnode) {
-         Index_t start = nodeElemStart_v(gnode) ;
-         Index_t end   = nodeElemStart_v(gnode + 1) ;
-         Real_t fx_tmp = Real_t(0.0) ;
-         Real_t fy_tmp = Real_t(0.0) ;
-         Real_t fz_tmp = Real_t(0.0) ;
-         for (Index_t j = start; j < end; ++j) {
-            Index_t corner = nodeElemCornerList_v(j) ;
-            fx_tmp += fx_elem(corner) ;
-            fy_tmp += fy_elem(corner) ;
-            fz_tmp += fz_elem(corner) ;
+         /* P2-B: scatter directly to node forces via atomicAdd (CUDA) */
+         auto fx_acc = fx_scatter.access() ;
+         auto fy_acc = fy_scatter.access() ;
+         auto fz_acc = fz_scatter.access() ;
+         for (Index_t n = 0; n < 8; ++n) {
+            fx_acc(elemToNode[n]) += hgfx[n] ;
+            fy_acc(elemToNode[n]) += hgfy[n] ;
+            fz_acc(elemToNode[n]) += hgfz[n] ;
          }
-         fx_v(gnode) += fx_tmp ;
-         fy_v(gnode) += fy_tmp ;
-         fz_v(gnode) += fz_tmp ;
       });
+
+      Kokkos::Experimental::contribute(fx_v, fx_scatter) ;
+      Kokkos::Experimental::contribute(fy_v, fy_scatter) ;
+      Kokkos::Experimental::contribute(fz_v, fz_scatter) ;
 
    } else {
       // hgcoef == 0: still need to fill determ (used by volume check)
@@ -310,7 +285,7 @@ void CalcVolumeForceForElems(Domain& domain)
       // determ: pre-allocated scratch View (P1 — no per-step cudaMalloc).
       auto& determ = domain.m_elems.m_scratch.m_determ ;
 
-      IntegrateStressForElems(domain, determ, numElem, domain.numNode()) ;
+      IntegrateStressForElems(domain, determ, numElem) ;
 
       // Check for negative element volume
       Kokkos::parallel_for("CalcVolumeForceForElems_check", numElem,

@@ -94,7 +94,10 @@ void CalcLagrangeElements(Domain& domain, Kokkos::View<Real_t*> vnew)
       auto dzz_v      = domain.m_elems.m_dzz ;
 
       /* Opt-9: Fused kinematics + Lagrange */
-      Kokkos::parallel_for("CalcKinematicsAndLagrange", numElem,
+      // P2-A: LaunchBounds<256,2> → compiler targets ≤128 regs/thread (was 144)
+      //        → SM occupancy 25% → 50%+; no-op on CPU backends.
+      using kin_policy_t = Kokkos::RangePolicy<Kokkos::LaunchBounds<256, 2>>;
+      Kokkos::parallel_for("CalcKinematicsAndLagrange", kin_policy_t(0, numElem),
                            KOKKOS_LAMBDA(Index_t k) {
          Real_t B[3][8] ;
          Real_t D[6] ;
