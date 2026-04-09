@@ -1,4 +1,5 @@
 #include "lulesh-nodal.h"
+#include "lulesh-comm.h"
 #include "lulesh-stress.h"
 
 /******************************************/
@@ -6,6 +7,12 @@
 static inline void CalcForceForNodes(Domain& domain)
 {
   Index_t numNode = domain.numNode() ;
+
+#if USE_MPI
+  CommRecv(domain, MSG_COMM_SBN, 3,
+           domain.sizeX() + 1, domain.sizeY() + 1, domain.sizeZ() + 1,
+           true, false) ;
+#endif
 
   auto fx_v = domain.m_nodes.m_fx ;
   auto fy_v = domain.m_nodes.m_fy ;
@@ -19,6 +26,18 @@ static inline void CalcForceForNodes(Domain& domain)
 
   /* Calcforce calls partial, force, hourq */
   CalcVolumeForceForElems(domain) ;
+
+#if USE_MPI
+  Domain_member fieldData[3] ;
+  fieldData[0] = &Domain::fx ;
+  fieldData[1] = &Domain::fy ;
+  fieldData[2] = &Domain::fz ;
+
+  CommSend(domain, MSG_COMM_SBN, 3, fieldData,
+           domain.sizeX() + 1, domain.sizeY() + 1, domain.sizeZ() + 1,
+           true, false) ;
+  CommSBN(domain, 3, fieldData) ;
+#endif
 }
 
 /******************************************/
@@ -113,16 +132,39 @@ void CalcVelocityAndPositionForNodes(Domain& domain, const Real_t dt,
 
 void LagrangeNodal(Domain& domain)
 {
+#if USE_MPI
+   Domain_member fieldData[6] ;
+#endif
    const Real_t delt = domain.deltatime() ;
    Real_t u_cut = domain.u_cut() ;
 
   CalcForceForNodes(domain);
+
+#if USE_MPI
+   CommRecv(domain, MSG_SYNC_POS_VEL, 6,
+            domain.sizeX() + 1, domain.sizeY() + 1, domain.sizeZ() + 1,
+            false, false) ;
+#endif
 
    CalcAccelerationForNodes(domain, domain.numNode());
 
    ApplyAccelerationBoundaryConditionsForNodes(domain);
 
    CalcVelocityAndPositionForNodes(domain, delt, u_cut, domain.numNode()) ;
+
+#if USE_MPI
+   fieldData[0] = &Domain::x ;
+   fieldData[1] = &Domain::y ;
+   fieldData[2] = &Domain::z ;
+   fieldData[3] = &Domain::xd ;
+   fieldData[4] = &Domain::yd ;
+   fieldData[5] = &Domain::zd ;
+
+   CommSend(domain, MSG_SYNC_POS_VEL, 6, fieldData,
+            domain.sizeX() + 1, domain.sizeY() + 1, domain.sizeZ() + 1,
+            false, false) ;
+   CommSyncPosVel(domain) ;
+#endif
 
   return;
 }

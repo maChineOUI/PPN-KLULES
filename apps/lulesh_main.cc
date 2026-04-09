@@ -157,15 +157,23 @@ Additional BSD Notice
 
 int main(int argc, char *argv[])
 {
+#if USE_MPI
+   MPI_Init(&argc, &argv);
+#endif
    Kokkos::initialize(argc, argv);
    {
-  Domain *locDom ;
+   Domain *locDom ;
    Int_t numRanks ;
    Int_t myRank ;
    struct cmdLineOpts opts;
 
+#if USE_MPI
+   MPI_Comm_size(MPI_COMM_WORLD, &numRanks);
+   MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
+#else
    numRanks = 1;
    myRank = 0;
+#endif
 
    /* Set defaults that can be overridden by command line opts */
    opts.its = 9999999;
@@ -202,8 +210,13 @@ int main(int argc, char *argv[])
 
 
    // BEGIN timestep to solution */
+#if USE_MPI
+   MPI_Barrier(MPI_COMM_WORLD);
+   double start = MPI_Wtime();
+#else
    timeval start;
    gettimeofday(&start, nullptr) ;
+#endif
    while((locDom->time() < locDom->stoptime()) && (locDom->cycle() < opts.its)) {
 
       TimeIncrement(*locDom) ;
@@ -217,11 +230,17 @@ int main(int argc, char *argv[])
 
    // Use reduced max elapsed time
    double elapsed_time;
+   double elapsed_timeG;
+#if USE_MPI
+   elapsed_time = MPI_Wtime() - start;
+   MPI_Reduce(&elapsed_time, &elapsed_timeG, 1, MPI_DOUBLE,
+              MPI_MAX, 0, MPI_COMM_WORLD);
+#else
    timeval end;
    gettimeofday(&end, nullptr) ;
    elapsed_time = (double)(end.tv_sec - start.tv_sec) + ((double)(end.tv_usec - start.tv_usec))/1000000 ;
-   double elapsed_timeG;
    elapsed_timeG = elapsed_time;
+#endif
 
    if ((myRank == 0) && (opts.quiet == 0)) {
       VerifyAndWriteFinalOutput(elapsed_timeG, *locDom, opts.nx, numRanks);
@@ -230,5 +249,8 @@ int main(int argc, char *argv[])
    delete locDom;
    } // end Kokkos scope
    Kokkos::finalize();
+#if USE_MPI
+   MPI_Finalize();
+#endif
    return 0 ;
 }

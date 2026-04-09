@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.16)
 project(LULESH VERSION 2.0 LANGUAGES CXX)
 
+# Help IDEs pick up transitive include paths/defines from imported targets
+# such as Kokkos::kokkos.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # --- 1. 基础编译设置 ---
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -9,6 +13,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
+
+option(LULESH_ENABLE_MPI "Enable MPI support" ON)
 
 # --- 2. 区分系统查找 OpenMP ---
 if(APPLE)
@@ -37,6 +43,7 @@ find_package(Kokkos 5.0 REQUIRED)
 # --- 3. 定义源文件 ---
 set(SOURCES
     apps/lulesh_main.cc
+    src/lulesh-comm.cc
     src/lulesh-stress.cc
     src/lulesh-nodal.cc
     src/lulesh-kinematics.cc
@@ -70,6 +77,19 @@ if(OpenMP_CXX_FOUND)
 endif()
 
 target_link_libraries(lulesh PRIVATE Kokkos::kokkos)
+
+set(LULESH_USE_MPI 0)
+if(LULESH_ENABLE_MPI)
+    find_package(MPI QUIET COMPONENTS CXX)
+    if(MPI_CXX_FOUND)
+        target_link_libraries(lulesh PRIVATE MPI::MPI_CXX)
+        set(LULESH_USE_MPI 1)
+    else()
+        message(WARNING "MPI requested but not found; building with USE_MPI=0")
+    endif()
+endif()
+
+target_compile_definitions(lulesh PRIVATE USE_MPI=${LULESH_USE_MPI})
 
 # --- 6. CUDA backend 支持（可选）---
 # 若 Kokkos 安装时开启了 CUDA，自动将所有含 KOKKOS_LAMBDA 的源文件标记为 CUDA 语言，
@@ -140,3 +160,4 @@ endif()
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "OpenMP CXX Flags: ${OpenMP_CXX_FLAGS}")
 message(STATUS "Kokkos devices: ${Kokkos_DEVICES}")
+message(STATUS "MPI support: ${LULESH_USE_MPI}")

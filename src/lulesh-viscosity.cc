@@ -1,4 +1,5 @@
 #include "lulesh-viscosity.h"
+#include "lulesh-comm.h"
 
 /******************************************/
 
@@ -300,8 +301,27 @@ void CalcQForElems(Domain& domain, Kokkos::View<Real_t*> vnew)
 
       domain.AllocateGradients(numElem, allElem);
 
+#if USE_MPI
+      CommRecv(domain, MSG_MONOQ, 3,
+               domain.sizeX(), domain.sizeY(), domain.sizeZ(),
+               true, true) ;
+#endif
+
       /* Calculate velocity gradients */
       CalcMonotonicQGradientsForElems(domain, vnew);
+
+#if USE_MPI
+      Domain_member fieldData[3] ;
+      fieldData[0] = &Domain::delv_xi ;
+      fieldData[1] = &Domain::delv_eta ;
+      fieldData[2] = &Domain::delv_zeta ;
+
+      CommSend(domain, MSG_MONOQ, 3, fieldData,
+               domain.sizeX(), domain.sizeY(), domain.sizeZ(),
+               true, true) ;
+
+      CommMonoQ(domain) ;
+#endif
 
       CalcMonotonicQForElems(domain, vnew) ;
 
@@ -321,7 +341,11 @@ void CalcQForElems(Domain& domain, Kokkos::View<Real_t*> vnew)
          Kokkos::Max<Index_t>(exceeded)) ;
 
       if (exceeded > 0) {
+#if USE_MPI
+         MPI_Abort(MPI_COMM_WORLD, QStopError);
+#else
          exit(QStopError);
+#endif
       }
    }
 }

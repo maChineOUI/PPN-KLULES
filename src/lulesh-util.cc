@@ -46,7 +46,11 @@ static void ParseError(const char *message, int myRank)
 {
    if (myRank == 0) {
       printf("%s\n", message);
+#if USE_MPI
+      MPI_Abort(MPI_COMM_WORLD, -1);
+#else
       exit(-1);
+#endif
    }
 }
 
@@ -135,7 +139,11 @@ void ParseCommandLineOptions(int argc, char *argv[],
          /* -h */
          else if (strcmp(argv[i], "-h") == 0) {
             PrintCommandLineOptions(argv[0], myRank);
+#if USE_MPI
+            MPI_Abort(MPI_COMM_WORLD, 0);
+#else
             exit(0);
+#endif
          }
          else {
             char msg[80];

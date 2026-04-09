@@ -1,0 +1,100 @@
+Comparison report: /home/fzj/桌面/ppn/PPN-KLULES/reports/compare-mpi-20260409_173850
+Original baseline binary: /home/fzj/桌面/ppn/PPN-KLULES/../lulesh/LULESH/build-baseline/lulesh2.0
+Refactored binary: /home/fzj/桌面/ppn/PPN-KLULES/build/mpi/lulesh2.0
+MPI ranks (NP): 8
+MPI extra args: <none>
+Energy abs tolerance: 1e-8
+MaxRelDiff abs tolerance: 1e-10
+
+[np8_t1_s10_i10]
+threads=1, size=10, iterations=10, status=PASS
+mpi tasks: original=8, refactored=8, requested=8
+orig: energy=2.077411e+06, maxrel=6.880708e-14, time=0.034s, FOM=2374.0622
+new : energy=2.077411e+06, maxrel=6.880708e-14, time=0.01s, FOM=9345.7496
+diff: energy_abs=0.000000e+00, maxrel_abs=0.000000e+00, speedup(orig/new)=3.400
+diagnosis: Metrics match within tolerance.
+raw outputs:
+  /home/fzj/桌面/ppn/PPN-KLULES/reports/compare-mpi-20260409_173850/np8_t1_s10_i10_orig.txt
+  /home/fzj/桌面/ppn/PPN-KLULES/reports/compare-mpi-20260409_173850/np8_t1_s10_i10_new.txt
+
+key lines from original:
+   Final Origin Energy =  2.077411e+06
+        MaxRelDiff   = 6.880708e-14
+Elapsed time         =      0.034 (s)
+FOM                  =  2374.0622 (z/s)
+
+key lines from refactored:
+   Final Origin Energy = 2.077411e+06 
+        MaxRelDiff   = 6.880708e-14
+Elapsed time         =       0.01 (s)
+FOM                  =  9345.7496 (z/s)
+
+[np8_t1_s20_i20]
+threads=1, size=20, iterations=20, status=PASS
+mpi tasks: original=8, refactored=8, requested=8
+orig: energy=1.038309e+07, maxrel=9.285741e-13, time=0.56s, FOM=2272.3134
+new : energy=1.038309e+07, maxrel=9.285741e-13, time=0.13s, FOM=10162.497
+diff: energy_abs=0.000000e+00, maxrel_abs=0.000000e+00, speedup(orig/new)=4.308
+diagnosis: Metrics match within tolerance.
+raw outputs:
+  /home/fzj/桌面/ppn/PPN-KLULES/reports/compare-mpi-20260409_173850/np8_t1_s20_i20_orig.txt
+  /home/fzj/桌面/ppn/PPN-KLULES/reports/compare-mpi-20260409_173850/np8_t1_s20_i20_new.txt
+
+key lines from original:
+   Final Origin Energy =  1.038309e+07
+        MaxRelDiff   = 9.285741e-13
+Elapsed time         =       0.56 (s)
+FOM                  =  2272.3134 (z/s)
+
+key lines from refactored:
+   Final Origin Energy = 1.038309e+07 
+        MaxRelDiff   = 9.285741e-13
+Elapsed time         =       0.13 (s)
+FOM                  =  10162.497 (z/s)
+
+[np8_t1_s40_i20]
+threads=1, size=40, iterations=20, status=PASS
+mpi tasks: original=8, refactored=8, requested=8
+orig: energy=8.306471e+07, maxrel=6.088817e-13, time=3.9s, FOM=2592.5251
+new : energy=8.306471e+07, maxrel=6.088817e-13, time=1.01s, FOM=10117.547
+diff: energy_abs=0.000000e+00, maxrel_abs=0.000000e+00, speedup(orig/new)=3.861
+diagnosis: Metrics match within tolerance.
+raw outputs:
+  /home/fzj/桌面/ppn/PPN-KLULES/reports/compare-mpi-20260409_173850/np8_t1_s40_i20_orig.txt
+  /home/fzj/桌面/ppn/PPN-KLULES/reports/compare-mpi-20260409_173850/np8_t1_s40_i20_new.txt
+
+key lines from original:
+   Final Origin Energy =  8.306471e+07
+        MaxRelDiff   = 6.088817e-13
+Elapsed time         =        3.9 (s)
+FOM                  =  2592.5251 (z/s)
+
+key lines from refactored:
+   Final Origin Energy = 8.306471e+07 
+        MaxRelDiff   = 6.088817e-13
+Elapsed time         =       1.01 (s)
+FOM                  =  10117.547 (z/s)
+
+[np8_t1_s30_i100]
+threads=1, size=30, iterations=100, status=PASS
+mpi tasks: original=8, refactored=8, requested=8
+orig: energy=1.058138e+07, maxrel=3.249983e-13, time=9.7s, FOM=2227.2385
+new : energy=1.058138e+07, maxrel=3.249983e-13, time=2.26s, FOM=9571.4613
+diff: energy_abs=0.000000e+00, maxrel_abs=0.000000e+00, speedup(orig/new)=4.292
+diagnosis: Metrics match within tolerance.
+raw outputs:
+  /home/fzj/桌面/ppn/PPN-KLULES/reports/compare-mpi-20260409_173850/np8_t1_s30_i100_orig.txt
+  /home/fzj/桌面/ppn/PPN-KLULES/reports/compare-mpi-20260409_173850/np8_t1_s30_i100_new.txt
+
+key lines from original:
+   Final Origin Energy =  1.058138e+07
+        MaxRelDiff   = 3.249983e-13
+Elapsed time         =        9.7 (s)
+FOM                  =  2227.2385 (z/s)
+
+key lines from refactored:
+   Final Origin Energy = 1.058138e+07 
+        MaxRelDiff   = 3.249983e-13
+Elapsed time         =       2.26 (s)
+FOM                  =  9571.4613 (z/s)
+

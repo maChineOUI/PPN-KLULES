@@ -2,6 +2,17 @@
 
 /******************************************/
 
+namespace {
+
+#if USE_MPI
+MPI_Datatype MpiRealType()
+{
+   return (sizeof(Real_t) == sizeof(float)) ? MPI_FLOAT : MPI_DOUBLE;
+}
+#endif
+
+} // namespace
+
 void TimeIncrement(Domain& domain)
 {
    Real_t targetdt = domain.stoptime() - domain.time() ;
@@ -20,7 +31,11 @@ void TimeIncrement(Domain& domain)
          gnewdt = domain.dthydro() * Real_t(2.0) / Real_t(3.0) ;
       }
 
+#if USE_MPI
+      MPI_Allreduce(&gnewdt, &newdt, 1, MpiRealType(), MPI_MIN, MPI_COMM_WORLD) ;
+#else
       newdt = gnewdt;
+#endif
 
       ratio = newdt / olddt ;
       if (ratio >= Real_t(1.0)) {

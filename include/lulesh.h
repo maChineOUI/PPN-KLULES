@@ -1,10 +1,19 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <vector>
 #include <Kokkos_Core.hpp>
+
+#ifndef USE_MPI
+#define USE_MPI 0
+#endif
+
+#if USE_MPI
+#include <mpi.h>
+#endif
 
 
 // Precision specification
@@ -49,6 +58,20 @@ constexpr Int_t ZETA_P      = 0x38000;
 constexpr Int_t ZETA_P_SYMM = 0x08000;
 constexpr Int_t ZETA_P_FREE = 0x10000;
 constexpr Int_t ZETA_P_COMM = 0x20000;
+
+// MPI message tags
+constexpr Int_t MSG_COMM_SBN     = 1024;
+constexpr Int_t MSG_SYNC_POS_VEL = 2048;
+constexpr Int_t MSG_MONOQ        = 3072;
+
+constexpr Index_t MAX_FIELDS_PER_MPI_COMM = 6;
+constexpr Index_t CACHE_COHERENCE_PAD_REAL = 128 / sizeof(Real_t);
+
+constexpr Index_t CacheAlignReal(Index_t n)
+{
+   return (n + (CACHE_COHERENCE_PAD_REAL - 1)) &
+          ~(CACHE_COHERENCE_PAD_REAL - 1);
+}
 
 //////////////////////////////////////////////////////
 // Primary data structure
@@ -239,6 +262,15 @@ class Domain {
    Int_t&  cost()             { return m_cost ; }
    Index_t&  numElem()            { return m_numElem ; }
    Index_t&  numNode()            { return m_numNode ; }
+   Index_t&  maxPlaneSize()       { return m_maxPlaneSize ; }
+   Index_t&  maxEdgeSize()        { return m_maxEdgeSize ; }
+
+#if USE_MPI
+   Kokkos::View<Real_t*, Kokkos::HostSpace> commDataSend;
+   Kokkos::View<Real_t*, Kokkos::HostSpace> commDataRecv;
+   std::array<MPI_Request, 26> recvRequest;
+   std::array<MPI_Request, 26> sendRequest;
+#endif
 
    //
    // GPU-accessible data members — public so kernels can extract View handles
@@ -461,6 +493,8 @@ class Domain {
    Index_t m_sizeZ ;
    Index_t m_numElem ;
    Index_t m_numNode ;
+   Index_t m_maxPlaneSize ;
+   Index_t m_maxEdgeSize ;
 
    // Used in setup
    Index_t m_rowMin, m_rowMax;
@@ -468,5 +502,4 @@ class Domain {
    Index_t m_planeMin, m_planeMax ;
 
 } ;
-
 

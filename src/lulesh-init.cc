@@ -340,6 +340,10 @@ Domain::SetupThreadSupportStructures()
 void
 Domain::SetupCommBuffers(Int_t edgeNodes)
 {
+  Index_t maxEdgeSize = std::max(sizeX(), std::max(sizeY(), sizeZ())) + 1 ;
+  m_maxPlaneSize = CacheAlignReal(maxEdgeSize * maxEdgeSize) ;
+  m_maxEdgeSize = CacheAlignReal(maxEdgeSize) ;
+
   // assume communication to 6 neighbors by default 
   m_rowMin = (m_rowLoc == 0)        ? 0 : 1;
   m_rowMax = (m_rowLoc == m_tp-1)     ? 0 : 1;
@@ -347,6 +351,34 @@ Domain::SetupCommBuffers(Int_t edgeNodes)
   m_colMax = (m_colLoc == m_tp-1)     ? 0 : 1;
   m_planeMin = (m_planeLoc == 0)    ? 0 : 1;
   m_planeMax = (m_planeLoc == m_tp-1) ? 0 : 1;
+
+#if USE_MPI
+  Index_t comBufSize =
+    (m_rowMin + m_rowMax + m_colMin + m_colMax + m_planeMin + m_planeMax) *
+    m_maxPlaneSize * MAX_FIELDS_PER_MPI_COMM ;
+
+  comBufSize +=
+    ((m_rowMin & m_colMin) + (m_rowMin & m_planeMin) + (m_colMin & m_planeMin) +
+     (m_rowMax & m_colMax) + (m_rowMax & m_planeMax) + (m_colMax & m_planeMax) +
+     (m_rowMax & m_colMin) + (m_rowMin & m_planeMax) + (m_colMin & m_planeMax) +
+     (m_rowMin & m_colMax) + (m_rowMax & m_planeMin) + (m_colMax & m_planeMin)) *
+    m_maxEdgeSize * MAX_FIELDS_PER_MPI_COMM ;
+
+  comBufSize +=
+    ((m_rowMin & m_colMin & m_planeMin) +
+     (m_rowMin & m_colMin & m_planeMax) +
+     (m_rowMin & m_colMax & m_planeMin) +
+     (m_rowMin & m_colMax & m_planeMax) +
+     (m_rowMax & m_colMin & m_planeMin) +
+     (m_rowMax & m_colMin & m_planeMax) +
+     (m_rowMax & m_colMax & m_planeMin) +
+     (m_rowMax & m_colMax & m_planeMax)) * CACHE_COHERENCE_PAD_REAL ;
+
+  commDataSend = Kokkos::View<Real_t*, Kokkos::HostSpace>("commDataSend", comBufSize);
+  commDataRecv = Kokkos::View<Real_t*, Kokkos::HostSpace>("commDataRecv", comBufSize);
+  Kokkos::deep_copy(commDataSend, Real_t(0.0));
+  Kokkos::deep_copy(commDataRecv, Real_t(0.0));
+#endif
 
   // Boundary nodesets
   if (m_colLoc == 0)
@@ -362,8 +394,14 @@ Domain::SetupCommBuffers(Int_t edgeNodes)
 void
 Domain::CreateRegionIndexSets(Int_t nr, Int_t balance)
 {
+#if USE_MPI
+   int myRank = 0;
+   MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
+   srand(myRank);
+#else
    srand(0);
    Index_t myRank = 0;
+#endif
    this->numReg() = nr;
    m_conn.m_regElemSize = Kokkos::View<Index_t*, Kokkos::HostSpace>("regElemSize", numReg()) ;
    m_conn.m_regElemlist.resize(numReg());
@@ -715,4 +753,3 @@ void InitMeshDecomp(Int_t numRanks, Int_t myRank,
 
    return;
 }
-
