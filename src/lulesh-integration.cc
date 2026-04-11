@@ -10,10 +10,8 @@
 static inline
 void LagrangeElements(Domain& domain, Index_t numElem)
 {
-  // vnew: relative volume per element — must be a Kokkos::View so GPU kernels
-  // (CalcKinematicsAndLagrange, CalcMonotonicQ*, ApplyMaterialProperties,
-  //  UpdateVolumes) can access it via [=] capture inside KOKKOS_LAMBDA.
-  Kokkos::View<Real_t*> vnew("vnew", numElem);
+  // P4: use pre-allocated persistent view — no per-step cudaMalloc.
+  auto& vnew = domain.m_elems.m_vnew ;
 
   CalcLagrangeElements(domain, vnew) ;
 

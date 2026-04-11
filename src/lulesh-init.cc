@@ -5,9 +5,10 @@
 #include <climits>
 #include "lulesh-init.h"
 #include "lulesh-geometry.h"
+#include "lulesh-comm.h"
 
 /////////////////////////////////////////////////////////////////////
-Domain::Domain(Int_t numRanks, Index_t colLoc,
+Domain::Domain(Int_t numRanks, Int_t myRank, Index_t colLoc,
                Index_t rowLoc, Index_t planeLoc,
                Index_t nx, int tp, int nr, int balance, Int_t cost)
    :
@@ -38,6 +39,7 @@ Domain::Domain(Int_t numRanks, Index_t colLoc,
 
    m_tp       = tp ;
    m_numRanks = numRanks ;
+   m_myRank   = myRank ;
 
    ///////////////////////////////
    //   Initialize Sedov Mesh
@@ -58,11 +60,23 @@ Domain::Domain(Int_t numRanks, Index_t colLoc,
 
    m_conn.m_regNumList = Kokkos::View<Index_t*>("regNumList", numElem()) ;  // material indexset
 
-   // Elem-centered 
+   // Elem-centered
    AllocateElemPersistent(numElem()) ;
 
-   // Node-centered 
+   // Node-centered
    AllocateNodePersistent(numNode()) ;
+
+   // Pre-allocate gradient and strain temporaries — fixed size, reused every step.
+   // allElem includes local elements plus one ghost layer on each of the 6 faces
+   // (same layout used by the MonoQ halo exchange).
+   {
+      Index_t allElem = m_numElem
+         + 2*m_sizeX*m_sizeY   // planeMin + planeMax ghost planes
+         + 2*m_sizeX*m_sizeZ   // rowMin   + rowMax   ghost rows
+         + 2*m_sizeY*m_sizeZ ; // colMin   + colMax   ghost columns
+      AllocateGradients(m_numElem, allElem) ;
+      AllocateStrains(m_numElem) ;
+   }
 
    SetupCommBuffers(edgeNodes);
 
@@ -178,6 +192,11 @@ Domain::Domain(Int_t numRanks, Index_t colLoc,
    //set initial deltatime base on analytic CFL calculation
    deltatime() = (Real_t(.5)*cbrt(volo(0)))/sqrt(Real_t(2.0)*einit);
 
+#if USE_MPI
+   // Allocate MPI send/recv buffers (depends on sizeX/Y/Z being set above)
+   CommSetup(*this);
+#endif
+
 } // End constructor
 
 
@@ -239,53 +258,50 @@ Domain::BuildMesh(Int_t nx, Int_t edgeNodes, Int_t edgeElems)
 void
 Domain::SetupThreadSupportStructures()
 {
-   Index_t numthreads = Kokkos::DefaultHostExecutionSpace().concurrency();
+  // The stress gather path unconditionally reads these CSR-style adjacency
+  // tables, so they must exist even when OpenMP is configured with one thread.
+  std::vector<Index_t> nodeElemCount(numNode(), 0) ;
 
-  if (numthreads > 1) {
-    // set up node-centered indexing of elements
-    std::vector<Index_t> nodeElemCount(numNode(), 0) ;
-
-    for (Index_t i=0; i<numElem(); ++i) {
-      Index_t *nl = nodelist(i) ;
-      for (Index_t j=0; j < 8; ++j) {
-	++(nodeElemCount[nl[j]] );
-      }
+  for (Index_t i=0; i<numElem(); ++i) {
+    Index_t *nl = nodelist(i) ;
+    for (Index_t j=0; j < 8; ++j) {
+      ++(nodeElemCount[nl[j]] );
     }
+  }
 
-    m_conn.m_nodeElemStart = Kokkos::View<Index_t*>("nodeElemStart", numNode()+1) ;
+  m_conn.m_nodeElemStart = Kokkos::View<Index_t*>("nodeElemStart", numNode()+1) ;
 
-    m_conn.m_nodeElemStart[0] = 0;
+  m_conn.m_nodeElemStart[0] = 0;
 
-    for (Index_t i=1; i <= numNode(); ++i) {
-      m_conn.m_nodeElemStart[i] =
-	m_conn.m_nodeElemStart[i-1] + nodeElemCount[i-1] ;
+  for (Index_t i=1; i <= numNode(); ++i) {
+    m_conn.m_nodeElemStart[i] =
+      m_conn.m_nodeElemStart[i-1] + nodeElemCount[i-1] ;
+  }
+
+  m_conn.m_nodeElemCornerList = Kokkos::View<Index_t*>("nodeElemCornerList", m_conn.m_nodeElemStart[numNode()]);
+
+  for (Index_t i=0; i < numNode(); ++i) {
+    nodeElemCount[i] = 0;
+  }
+
+  for (Index_t i=0; i < numElem(); ++i) {
+    Index_t *nl = nodelist(i) ;
+    for (Index_t j=0; j < 8; ++j) {
+      Index_t m = nl[j];
+      Index_t k = i*8 + j ;
+      Index_t offset = m_conn.m_nodeElemStart[m] + nodeElemCount[m] ;
+      m_conn.m_nodeElemCornerList[offset] = k;
+      ++(nodeElemCount[m]) ;
     }
+  }
 
-    m_conn.m_nodeElemCornerList = Kokkos::View<Index_t*>("nodeElemCornerList", m_conn.m_nodeElemStart[numNode()]);
-
-    for (Index_t i=0; i < numNode(); ++i) {
-      nodeElemCount[i] = 0;
-    }
-
-    for (Index_t i=0; i < numElem(); ++i) {
-      Index_t *nl = nodelist(i) ;
-      for (Index_t j=0; j < 8; ++j) {
-	Index_t m = nl[j];
-	Index_t k = i*8 + j ;
-	Index_t offset = m_conn.m_nodeElemStart[m] + nodeElemCount[m] ;
-	m_conn.m_nodeElemCornerList[offset] = k;
-	++(nodeElemCount[m]) ;
-      }
-    }
-
-    Index_t clSize = m_conn.m_nodeElemStart[numNode()] ;
-    for (Index_t i=0; i < clSize; ++i) {
-      Index_t clv = m_conn.m_nodeElemCornerList[i] ;
-      if ((clv < 0) || (clv > numElem()*8)) {
-	fprintf(stderr,
-		"AllocateNodeElemIndexes(): nodeElemCornerList entry out of range!\n");
-	exit(-1);
-      }
+  Index_t clSize = m_conn.m_nodeElemStart[numNode()] ;
+  for (Index_t i=0; i < clSize; ++i) {
+    Index_t clv = m_conn.m_nodeElemCornerList[i] ;
+    if ((clv < 0) || (clv > numElem()*8)) {
+      fprintf(stderr,
+              "AllocateNodeElemIndexes(): nodeElemCornerList entry out of range!\n");
+      exit(-1);
     }
   }
 }
@@ -318,7 +334,7 @@ void
 Domain::CreateRegionIndexSets(Int_t nr, Int_t balance)
 {
    srand(0);
-   Index_t myRank = 0;
+   const Index_t myRank = m_myRank;
    this->numReg() = nr;
    m_conn.m_regElemSize = Kokkos::View<Index_t*>("regElemSize", numReg());
    m_conn.m_regElemlist.resize(numReg());
@@ -625,4 +641,3 @@ void InitMeshDecomp(Int_t numRanks, Int_t myRank,
 
    return;
 }
-

@@ -74,8 +74,6 @@ void CalcLagrangeElements(Domain& domain, Kokkos::View<Real_t*> vnew)
    if (numElem > 0) {
       const Real_t deltatime = domain.deltatime() ;
 
-      domain.AllocateStrains(numElem);
-
       // Extract Views for KOKKOS_LAMBDA ([=] capture)
       auto nodelist_v = domain.m_conn.m_nodelist ;
       auto x_v        = domain.m_nodes.m_x ;
@@ -147,6 +145,5 @@ void CalcLagrangeElements(Domain& domain, Kokkos::View<Real_t*> vnew)
             Kokkos::abort("VolumeError: non-positive relative volume in CalcKinematicsAndLagrange") ;
       });
 
-      domain.DeallocateStrains();
    }
 }

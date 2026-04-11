@@ -148,87 +148,110 @@ Additional BSD Notice
 #include <sys/time.h>
 
 #include "lulesh.h"
+#include "lulesh-comm.h"
 #include "lulesh-timestep.h"
 #include "lulesh-integration.h"
 #include "lulesh-init.h"
+#include "lulesh-profile.h"
+#include "lulesh-runtime.h"
 #include "lulesh-util.h"
 
 /******************************************/
 
 int main(int argc, char *argv[])
 {
+   InitDistributedRuntime(argc, argv) ;
+
    Kokkos::initialize(argc, argv);
    {
-  Domain *locDom ;
-   Int_t numRanks ;
-   Int_t myRank ;
-   struct cmdLineOpts opts;
+      BindWorldCommunicator(Kokkos::DefaultExecutionSpace{}) ;
 
-   numRanks = 1;
-   myRank = 0;
+      Domain *locDom ;
+      Int_t numRanks ;
+      Int_t myRank ;
+      struct cmdLineOpts opts;
+
+      numRanks = DistributedSize() ;
+      myRank = DistributedRank() ;
 
    /* Set defaults that can be overridden by command line opts */
-   opts.its = 9999999;
-   opts.nx  = 30;
-   opts.numReg = 11;
-   opts.numFiles = (int)(numRanks+10)/9;
-   opts.showProg = 0;
-   opts.quiet = 0;
-   opts.balance = 1;
-   opts.cost = 1;
+      opts.its = 9999999;
+      opts.nx  = 30;
+      opts.numReg = 11;
+      opts.numFiles = (int)(numRanks+10)/9;
+      opts.showProg = 0;
+      opts.quiet = 0;
+      opts.balance = 1;
+      opts.cost = 1;
 
-   ParseCommandLineOptions(argc, argv, myRank, &opts);
+      ParseCommandLineOptions(argc, argv, myRank, &opts);
 
-   if ((myRank == 0) && (opts.quiet == 0)) {
-      printf("Running problem size %d^3 per domain until completion\n", opts.nx);
-      printf("Num processors: %d\n", numRanks);
-      printf("Num threads: %d\n", Kokkos::DefaultHostExecutionSpace().concurrency());
-      printf("Total number of elements: %lld\n\n", (long long int)(numRanks*opts.nx*opts.nx*opts.nx));
-      printf("To run other sizes, use -s <integer>.\n");
-      printf("To run a fixed number of iterations, use -i <integer>.\n");
-      printf("To run a more or less balanced region set, use -b <integer>.\n");
-      printf("To change the relative costs of regions, use -c <integer>.\n");
-      printf("To print out progress, use -p\n");
-      printf("See help (-h) for more options\n\n");
-   }
+      if ((myRank == 0) && (opts.quiet == 0)) {
+         printf("Running problem size %d^3 per domain until completion\n", opts.nx);
+         printf("Num processors: %d\n", numRanks);
+         printf("Num threads: %d\n", Kokkos::DefaultHostExecutionSpace().concurrency());
+         printf("Total number of elements: %lld\n\n", (long long int)(numRanks*opts.nx*opts.nx*opts.nx));
+         printf("To run other sizes, use -s <integer>.\n");
+         printf("To run a fixed number of iterations, use -i <integer>.\n");
+         printf("To run a more or less balanced region set, use -b <integer>.\n");
+         printf("To change the relative costs of regions, use -c <integer>.\n");
+         printf("To print out progress, use -p\n");
+         printf("See help (-h) for more options\n\n");
+      }
 
-   // Set up the mesh and decompose. Assumes regular cubes for now
-   Int_t col, row, plane, side;
-   InitMeshDecomp(numRanks, myRank, &col, &row, &plane, &side);
+      // Set up the mesh and decompose. Assumes regular cubes for now
+      Int_t col, row, plane, side;
+      InitMeshDecomp(numRanks, myRank, &col, &row, &plane, &side);
 
-   // Build the main data structure and initialize it
-   locDom = new Domain(numRanks, col, row, plane, opts.nx,
-                       side, opts.numReg, opts.balance, opts.cost) ;
+      // Build the main data structure and initialize it
+      locDom = new Domain(numRanks, myRank, col, row, plane, opts.nx,
+                          side, opts.numReg, opts.balance, opts.cost) ;
 
+      ProfileReset() ;
 
    // BEGIN timestep to solution */
-   timeval start;
-   gettimeofday(&start, nullptr) ;
-   while((locDom->time() < locDom->stoptime()) && (locDom->cycle() < opts.its)) {
+      timeval start;
+      gettimeofday(&start, nullptr) ;
+      while((locDom->time() < locDom->stoptime()) && (locDom->cycle() < opts.its)) {
+         ProfileScope stepTimer(ProfileTimer::step_total) ;
 
-      TimeIncrement(*locDom) ;
-      LagrangeLeapFrog(*locDom) ;
+         TimeIncrement(*locDom) ;
+         LagrangeLeapFrog(*locDom) ;
 
-      if ((opts.showProg != 0) && (opts.quiet == 0) && (myRank == 0)) {
-         printf("cycle = %d, time = %e, dt=%e\n",
-                locDom->cycle(), double(locDom->time()), double(locDom->deltatime()) ) ;
+         if ((opts.showProg != 0) && (opts.quiet == 0) && (myRank == 0)) {
+            printf("cycle = %d, time = %e, dt=%e\n",
+                   locDom->cycle(), double(locDom->time()), double(locDom->deltatime()) ) ;
+         }
       }
-   }
 
-   // Use reduced max elapsed time
-   double elapsed_time;
-   timeval end;
-   gettimeofday(&end, nullptr) ;
-   elapsed_time = (double)(end.tv_sec - start.tv_sec) + ((double)(end.tv_usec - start.tv_usec))/1000000 ;
-   double elapsed_timeG;
-   elapsed_timeG = elapsed_time;
+      // Use reduced max elapsed time
+      double elapsed_time;
+      timeval end;
+      gettimeofday(&end, nullptr) ;
+      elapsed_time = (double)(end.tv_sec - start.tv_sec) + ((double)(end.tv_usec - start.tv_usec))/1000000 ;
+      double elapsed_timeG = elapsed_time ;
+#if USE_MPI
+      Kokkos::View<double, Kokkos::HostSpace> elapsed_send("elapsed_send") ;
+      Kokkos::View<double, Kokkos::HostSpace> elapsed_recv("elapsed_recv") ;
+      elapsed_send() = elapsed_time ;
+      elapsed_recv() = 0.0 ;
+      KokkosComm::Experimental::reduce(WorldComm(), elapsed_send, elapsed_recv, 0, KokkosComm::Max{}).wait() ;
+      if (myRank == 0) {
+         elapsed_timeG = elapsed_recv() ;
+      }
+#endif
 
-   if ((myRank == 0) && (opts.quiet == 0)) {
-      VerifyAndWriteFinalOutput(elapsed_timeG, *locDom, opts.nx, numRanks);
-   }
+      if ((myRank == 0) && (opts.quiet == 0)) {
+         VerifyAndWriteFinalOutput(elapsed_timeG, *locDom, opts.nx, numRanks);
+      }
+      ProfileDumpSummary(locDom->cycle(), numRanks, myRank) ;
 
-   delete locDom;
+      delete locDom;
+#if USE_MPI
+      CommTeardown() ;
+#endif
    } // end Kokkos scope
    Kokkos::finalize();
+   FinalizeDistributedRuntime() ;
    return 0 ;
 }

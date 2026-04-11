@@ -1,5 +1,8 @@
 #include "lulesh-nodal.h"
 #include "lulesh-stress.h"
+#include "lulesh-comm.h"
+#include "lulesh-profile.h"
+#include <cassert>
 
 /******************************************/
 
@@ -47,27 +50,27 @@ static inline
 void ApplyAccelerationBoundaryConditionsForNodes(Domain& domain)
 {
    Index_t size = domain.sizeX();
+   assert(domain.sizeY() == size && domain.sizeZ() == size
+          && "ApplyBC: symmetry plane nodesets assume a cubic domain") ;
    Index_t numNodeBC = (size+1)*(size+1) ;
 
-   if (!domain.symmXempty()) {
+   // P6: fuse three symmetry-plane BC kernels into one — two fewer kernel launches.
+   // All three nodesets have the same size (numNodeBC = (size+1)^2) and the index
+   // i means the same thing in each: position within the planar nodeset.
+   {
+      const bool doX = !domain.symmXempty() ;
+      const bool doY = !domain.symmYempty() ;
+      const bool doZ = !domain.symmZempty() ;
       auto symmX_v = domain.m_nodes.m_symmX ;
-      auto xdd_v   = domain.m_nodes.m_xdd ;
-      Kokkos::parallel_for("ApplyBC_X", numNodeBC, KOKKOS_LAMBDA(Index_t i) {
-         xdd_v(symmX_v(i)) = Real_t(0.0) ;
-      });
-   }
-   if (!domain.symmYempty()) {
       auto symmY_v = domain.m_nodes.m_symmY ;
-      auto ydd_v   = domain.m_nodes.m_ydd ;
-      Kokkos::parallel_for("ApplyBC_Y", numNodeBC, KOKKOS_LAMBDA(Index_t i) {
-         ydd_v(symmY_v(i)) = Real_t(0.0) ;
-      });
-   }
-   if (!domain.symmZempty()) {
       auto symmZ_v = domain.m_nodes.m_symmZ ;
+      auto xdd_v   = domain.m_nodes.m_xdd ;
+      auto ydd_v   = domain.m_nodes.m_ydd ;
       auto zdd_v   = domain.m_nodes.m_zdd ;
-      Kokkos::parallel_for("ApplyBC_Z", numNodeBC, KOKKOS_LAMBDA(Index_t i) {
-         zdd_v(symmZ_v(i)) = Real_t(0.0) ;
+      Kokkos::parallel_for("ApplyBC_XYZ", numNodeBC, KOKKOS_LAMBDA(Index_t i) {
+         if (doX) xdd_v(symmX_v(i)) = Real_t(0.0) ;
+         if (doY) ydd_v(symmY_v(i)) = Real_t(0.0) ;
+         if (doZ) zdd_v(symmZ_v(i)) = Real_t(0.0) ;
       });
    }
 }
@@ -113,16 +116,59 @@ void CalcVelocityAndPositionForNodes(Domain& domain, const Real_t dt,
 
 void LagrangeNodal(Domain& domain)
 {
-   const Real_t delt = domain.deltatime() ;
    Real_t u_cut = domain.u_cut() ;
 
-  CalcForceForNodes(domain);
+   CalcForceForNodes(domain);
 
+#if USE_MPI
+   // Halo exchange 1: accumulate node forces across subdomain boundaries.
+   // GPU → host, then CommRecv/CommSend/CommSBN, then host → GPU.
+   {
+      Index_t EN = domain.sizeX() + 1 ;  // edgeNodes
+      Index_t dx = EN, dy = EN, dz = EN ;
+
+      // P3: reuse pre-allocated host mirrors — no per-step cudaMallocHost.
+      auto& fx_h = g_comm.sbn_fx_h ;
+      auto& fy_h = g_comm.sbn_fy_h ;
+      auto& fz_h = g_comm.sbn_fz_h ;
+      {
+         ProfileScope sbnHostPullTimer(ProfileTimer::sbn_host_pull) ;
+         Kokkos::deep_copy(fx_h, domain.m_nodes.m_fx) ;
+         Kokkos::deep_copy(fy_h, domain.m_nodes.m_fy) ;
+         Kokkos::deep_copy(fz_h, domain.m_nodes.m_fz) ;
+      }
+
+      std::vector<Real_t*> fields = { fx_h.data(), fy_h.data(), fz_h.data() } ;
+
+      // Post receives before sending
+      {
+         ProfileScope sbnPostTimer(ProfileTimer::sbn_post, false) ;
+         CommRecv(domain, MSG_COMM_SBN, 3, dx, dy, dz, true) ;
+         CommSend(domain, MSG_COMM_SBN, 3, fields, dx, dy, dz, true) ;
+      }
+
+      // Wait + scatter-add received forces into local arrays
+      {
+         ProfileScope sbnWaitUnpackTimer(ProfileTimer::sbn_wait_unpack, false) ;
+         CommSBN(domain, 3, fields) ;
+      }
+
+      // Write accumulated forces back to device
+      {
+         ProfileScope sbnHostPushTimer(ProfileTimer::sbn_host_push) ;
+         Kokkos::deep_copy(domain.m_nodes.m_fx, fx_h) ;
+         Kokkos::deep_copy(domain.m_nodes.m_fy, fy_h) ;
+         Kokkos::deep_copy(domain.m_nodes.m_fz, fz_h) ;
+      }
+
+      CalcAccelerationForNodes(domain, domain.numNode()) ;
+   }
+#else
    CalcAccelerationForNodes(domain, domain.numNode());
+#endif
 
    ApplyAccelerationBoundaryConditionsForNodes(domain);
 
+   const Real_t delt = domain.deltatime() ;
    CalcVelocityAndPositionForNodes(domain, delt, u_cut, domain.numNode()) ;
-
-  return;
 }

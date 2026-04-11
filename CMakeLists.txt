@@ -34,6 +34,28 @@ endif()
 # 查找 Kokkos
 find_package(Kokkos 5.0 REQUIRED)
 
+# --- 2b. MPI (可选，默认开启) ---
+option(USE_MPI "Enable MPI support" ON)
+option(LULESH_ENABLE_PROFILE "Enable lightweight internal profiling" OFF)
+set(KokkosComm_SOURCE_DIR "" CACHE PATH "Path to a KokkosComm source tree when no installed package is available")
+if(USE_MPI)
+    set(KokkosComm_LOCAL_BUILD_DIR "")
+    find_package(MPI REQUIRED)
+    find_package(KokkosComm QUIET)
+    if(NOT TARGET KokkosComm::KokkosComm)
+        if(KokkosComm_SOURCE_DIR AND EXISTS "${KokkosComm_SOURCE_DIR}/CMakeLists.txt")
+            set(KokkosComm_LOCAL_BUILD_DIR "${CMAKE_BINARY_DIR}/_deps/kokkos-comm")
+            add_subdirectory("${KokkosComm_SOURCE_DIR}" "${KokkosComm_LOCAL_BUILD_DIR}")
+        else()
+            message(FATAL_ERROR "KokkosComm not found. Set KokkosComm_DIR or KokkosComm_SOURCE_DIR.")
+        endif()
+    endif()
+    message(STATUS "MPI found: ${MPI_CXX_COMPILER}")
+    add_compile_definitions(USE_MPI=1)
+else()
+    add_compile_definitions(USE_MPI=0)
+endif()
+
 # --- 3. 定义源文件 ---
 set(SOURCES
     apps/lulesh_main.cc
@@ -46,6 +68,9 @@ set(SOURCES
     src/lulesh-integration.cc
     src/lulesh-init.cc
     src/lulesh-util.cc
+    src/lulesh-comm.cc
+    src/lulesh-profile.cc
+    src/lulesh-runtime-mpi.cc
 )
 
 # --- 4. 创建目标 ---
@@ -61,12 +86,25 @@ target_compile_options(lulesh PRIVATE
     $<$<CONFIG:Debug>:-g -O0>
 )
 
+target_compile_definitions(lulesh PRIVATE
+    $<$<BOOL:${LULESH_ENABLE_PROFILE}>:LULESH_ENABLE_PROFILE>
+)
+
 # --- 5. 链接逻辑 ---
 target_link_libraries(lulesh PRIVATE m)
 
 # 无论什么系统，找到 OpenMP 后都使用这个标准 Target
 if(OpenMP_CXX_FOUND)
     target_link_libraries(lulesh PRIVATE OpenMP::OpenMP_CXX)
+endif()
+
+if(USE_MPI AND MPI_CXX_FOUND)
+    target_link_libraries(lulesh PRIVATE MPI::MPI_CXX)
+    target_include_directories(lulesh PRIVATE ${MPI_CXX_INCLUDE_DIRS})
+    if(KokkosComm_LOCAL_BUILD_DIR)
+        target_include_directories(lulesh PRIVATE "${KokkosComm_LOCAL_BUILD_DIR}/src")
+    endif()
+    target_link_libraries(lulesh PRIVATE KokkosComm::KokkosComm)
 endif()
 
 target_link_libraries(lulesh PRIVATE Kokkos::kokkos)
@@ -140,3 +178,4 @@ endif()
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "OpenMP CXX Flags: ${OpenMP_CXX_FLAGS}")
 message(STATUS "Kokkos devices: ${Kokkos_DEVICES}")
+message(STATUS "LULESH profiling: ${LULESH_ENABLE_PROFILE}")

@@ -1,4 +1,6 @@
 #include "lulesh-viscosity.h"
+#include "lulesh-comm.h"
+#include "lulesh-profile.h"
 
 /******************************************/
 
@@ -133,25 +135,30 @@ void CalcMonotonicQGradientsForElems(Domain& domain, Kokkos::View<Real_t*> vnew)
 
 /******************************************/
 
+// O-E/T2: index-list variant — processes only the elements named in
+// `indexList`. The MPI path uses staged lists (interior, row/col boundary,
+// plane boundary) to overlap MonoQ communication with more useful work. The
+// non-MPI path uses CalcMonotonicQForElems below, which avoids the per-element
+// indirection through an index array.
 static inline
-void CalcMonotonicQForElems(Domain& domain, Kokkos::View<Real_t*> vnew)
+void CalcMonotonicQForElemsSubset(Domain& domain, Kokkos::View<Real_t*> vnew,
+                                   Kokkos::View<Index_t*> indexList,
+                                   const char* label)
 {
-   /* Opt-10: flatten 11 per-region parallel_for into one over all numElem. */
    const Real_t ptiny               = Real_t(1.e-36) ;
    const Real_t monoq_limiter_mult  = domain.monoq_limiter_mult() ;
    const Real_t monoq_max_slope     = domain.monoq_max_slope() ;
    const Real_t qlc_monoq           = domain.qlc_monoq() ;
    const Real_t qqc_monoq           = domain.qqc_monoq() ;
-   Index_t numElem = domain.numElem() ;
 
    // Extract Views
-   auto elemBC_v   = domain.m_conn.m_elemBC ;
-   auto lxim_v     = domain.m_conn.m_lxim ;
-   auto lxip_v     = domain.m_conn.m_lxip ;
-   auto letam_v    = domain.m_conn.m_letam ;
-   auto letap_v    = domain.m_conn.m_letap ;
-   auto lzetam_v   = domain.m_conn.m_lzetam ;
-   auto lzetap_v   = domain.m_conn.m_lzetap ;
+   auto elemBC_v    = domain.m_conn.m_elemBC ;
+   auto lxim_v      = domain.m_conn.m_lxim ;
+   auto lxip_v      = domain.m_conn.m_lxip ;
+   auto letam_v     = domain.m_conn.m_letam ;
+   auto letap_v     = domain.m_conn.m_letap ;
+   auto lzetam_v    = domain.m_conn.m_lzetam ;
+   auto lzetap_v    = domain.m_conn.m_lzetap ;
    auto delv_xi_v   = domain.m_elems.m_delv_xi ;
    auto delv_eta_v  = domain.m_elems.m_delv_eta ;
    auto delv_zeta_v = domain.m_elems.m_delv_zeta ;
@@ -164,8 +171,9 @@ void CalcMonotonicQForElems(Domain& domain, Kokkos::View<Real_t*> vnew)
    auto qq_v        = domain.m_elems.m_qq ;
    auto ql_v        = domain.m_elems.m_ql ;
 
-   Kokkos::parallel_for("CalcMonotonicQForElems", numElem,
-                        KOKKOS_LAMBDA(Index_t i) {
+   Kokkos::parallel_for(label, indexList.extent(0),
+                        KOKKOS_LAMBDA(Index_t idx) {
+      Index_t i = indexList(idx) ;
       Real_t qlin, qquad ;
       Real_t phixi, phieta, phizeta ;
       Int_t bcMask = elemBC_v(i) ;
@@ -179,16 +187,14 @@ void CalcMonotonicQForElems(Domain& domain, Kokkos::View<Real_t*> vnew)
          case 0:         delvm = delv_xi_v(lxim_v(i)) ; break ;
          case XI_M_SYMM: delvm = delv_xi_v(i) ;         break ;
          case XI_M_FREE: delvm = Real_t(0.0) ;           break ;
-         default:        Kokkos::abort("CalcMonotonicQForElems: bad XI_M bcMask");
-                         delvm = 0; break;
+         default:        Kokkos::abort("CalcMonotonicQForElems: bad XI_M bcMask") ;
       }
       switch (bcMask & XI_P) {
          case XI_P_COMM: /* needs comm data */
          case 0:         delvp = delv_xi_v(lxip_v(i)) ; break ;
          case XI_P_SYMM: delvp = delv_xi_v(i) ;         break ;
          case XI_P_FREE: delvp = Real_t(0.0) ;           break ;
-         default:        Kokkos::abort("CalcMonotonicQForElems: bad XI_P bcMask");
-                         delvp = 0; break;
+         default:        Kokkos::abort("CalcMonotonicQForElems: bad XI_P bcMask") ;
       }
       delvm *= norm ; delvp *= norm ;
       phixi = Real_t(.5) * (delvm + delvp) ;
@@ -206,16 +212,14 @@ void CalcMonotonicQForElems(Domain& domain, Kokkos::View<Real_t*> vnew)
          case 0:          delvm = delv_eta_v(letam_v(i)) ; break ;
          case ETA_M_SYMM: delvm = delv_eta_v(i) ;          break ;
          case ETA_M_FREE: delvm = Real_t(0.0) ;             break ;
-         default:         Kokkos::abort("CalcMonotonicQForElems: bad ETA_M bcMask");
-                          delvm = 0; break;
+         default:         Kokkos::abort("CalcMonotonicQForElems: bad ETA_M bcMask") ;
       }
       switch (bcMask & ETA_P) {
          case ETA_P_COMM: /* needs comm data */
          case 0:          delvp = delv_eta_v(letap_v(i)) ; break ;
          case ETA_P_SYMM: delvp = delv_eta_v(i) ;          break ;
          case ETA_P_FREE: delvp = Real_t(0.0) ;             break ;
-         default:         Kokkos::abort("CalcMonotonicQForElems: bad ETA_P bcMask");
-                          delvp = 0; break;
+         default:         Kokkos::abort("CalcMonotonicQForElems: bad ETA_P bcMask") ;
       }
       delvm *= norm ; delvp *= norm ;
       phieta = Real_t(.5) * (delvm + delvp) ;
@@ -233,16 +237,14 @@ void CalcMonotonicQForElems(Domain& domain, Kokkos::View<Real_t*> vnew)
          case 0:           delvm = delv_zeta_v(lzetam_v(i)) ; break ;
          case ZETA_M_SYMM: delvm = delv_zeta_v(i) ;           break ;
          case ZETA_M_FREE: delvm = Real_t(0.0) ;               break ;
-         default:          Kokkos::abort("CalcMonotonicQForElems: bad ZETA_M bcMask");
-                           delvm = 0; break;
+         default:          Kokkos::abort("CalcMonotonicQForElems: bad ZETA_M bcMask") ;
       }
       switch (bcMask & ZETA_P) {
          case ZETA_P_COMM: /* needs comm data */
          case 0:           delvp = delv_zeta_v(lzetap_v(i)) ; break ;
          case ZETA_P_SYMM: delvp = delv_zeta_v(i) ;           break ;
          case ZETA_P_FREE: delvp = Real_t(0.0) ;               break ;
-         default:          Kokkos::abort("CalcMonotonicQForElems: bad ZETA_P bcMask");
-                           delvp = 0; break;
+         default:          Kokkos::abort("CalcMonotonicQForElems: bad ZETA_P bcMask") ;
       }
       delvm *= norm ; delvp *= norm ;
       phizeta = Real_t(.5) * (delvm + delvp) ;
@@ -284,6 +286,133 @@ void CalcMonotonicQForElems(Domain& domain, Kokkos::View<Real_t*> vnew)
    }) ;
 }
 
+// P2: direct RangePolicy variant for the non-MPI path — no index indirection.
+// Identical computation to CalcMonotonicQForElemsSubset; element index i is
+// used directly, eliminating one load per element through an index array.
+static inline
+void CalcMonotonicQForElems(Domain& domain, Kokkos::View<Real_t*> vnew)
+{
+   const Real_t ptiny               = Real_t(1.e-36) ;
+   const Real_t monoq_limiter_mult  = domain.monoq_limiter_mult() ;
+   const Real_t monoq_max_slope     = domain.monoq_max_slope() ;
+   const Real_t qlc_monoq           = domain.qlc_monoq() ;
+   const Real_t qqc_monoq           = domain.qqc_monoq() ;
+   Index_t numElem = domain.numElem() ;
+
+   auto elemBC_v    = domain.m_conn.m_elemBC ;
+   auto lxim_v      = domain.m_conn.m_lxim ;
+   auto lxip_v      = domain.m_conn.m_lxip ;
+   auto letam_v     = domain.m_conn.m_letam ;
+   auto letap_v     = domain.m_conn.m_letap ;
+   auto lzetam_v    = domain.m_conn.m_lzetam ;
+   auto lzetap_v    = domain.m_conn.m_lzetap ;
+   auto delv_xi_v   = domain.m_elems.m_delv_xi ;
+   auto delv_eta_v  = domain.m_elems.m_delv_eta ;
+   auto delv_zeta_v = domain.m_elems.m_delv_zeta ;
+   auto delx_xi_v   = domain.m_elems.m_delx_xi ;
+   auto delx_eta_v  = domain.m_elems.m_delx_eta ;
+   auto delx_zeta_v = domain.m_elems.m_delx_zeta ;
+   auto vdov_v      = domain.m_elems.m_vdov ;
+   auto elemMass_v  = domain.m_elems.m_elemMass ;
+   auto volo_v      = domain.m_elems.m_volo ;
+   auto qq_v        = domain.m_elems.m_qq ;
+   auto ql_v        = domain.m_elems.m_ql ;
+
+   Kokkos::parallel_for("CalcMonotonicQForElems", numElem,
+                        KOKKOS_LAMBDA(Index_t i) {
+      Real_t qlin, qquad ;
+      Real_t phixi, phieta, phizeta ;
+      Int_t bcMask = elemBC_v(i) ;
+      Real_t delvm = 0.0, delvp = 0.0 ;
+
+      Real_t norm = Real_t(1.) / (delv_xi_v(i) + ptiny) ;
+      switch (bcMask & XI_M) {
+         case XI_M_COMM: case 0: delvm = delv_xi_v(lxim_v(i)) ; break ;
+         case XI_M_SYMM:         delvm = delv_xi_v(i) ;          break ;
+         case XI_M_FREE:         delvm = Real_t(0.0) ;            break ;
+         default: Kokkos::abort("CalcMonotonicQForElems: bad XI_M") ;
+      }
+      switch (bcMask & XI_P) {
+         case XI_P_COMM: case 0: delvp = delv_xi_v(lxip_v(i)) ; break ;
+         case XI_P_SYMM:         delvp = delv_xi_v(i) ;          break ;
+         case XI_P_FREE:         delvp = Real_t(0.0) ;            break ;
+         default: Kokkos::abort("CalcMonotonicQForElems: bad XI_P") ;
+      }
+      delvm *= norm ; delvp *= norm ;
+      phixi = Real_t(.5) * (delvm + delvp) ;
+      delvm *= monoq_limiter_mult ; delvp *= monoq_limiter_mult ;
+      if (delvm < phixi) phixi = delvm ;
+      if (delvp < phixi) phixi = delvp ;
+      if (phixi < Real_t(0.)) phixi = Real_t(0.) ;
+      if (phixi > monoq_max_slope) phixi = monoq_max_slope ;
+
+      norm = Real_t(1.) / (delv_eta_v(i) + ptiny) ;
+      switch (bcMask & ETA_M) {
+         case ETA_M_COMM: case 0: delvm = delv_eta_v(letam_v(i)) ; break ;
+         case ETA_M_SYMM:         delvm = delv_eta_v(i) ;           break ;
+         case ETA_M_FREE:         delvm = Real_t(0.0) ;              break ;
+         default: Kokkos::abort("CalcMonotonicQForElems: bad ETA_M") ;
+      }
+      switch (bcMask & ETA_P) {
+         case ETA_P_COMM: case 0: delvp = delv_eta_v(letap_v(i)) ; break ;
+         case ETA_P_SYMM:         delvp = delv_eta_v(i) ;           break ;
+         case ETA_P_FREE:         delvp = Real_t(0.0) ;              break ;
+         default: Kokkos::abort("CalcMonotonicQForElems: bad ETA_P") ;
+      }
+      delvm *= norm ; delvp *= norm ;
+      phieta = Real_t(.5) * (delvm + delvp) ;
+      delvm *= monoq_limiter_mult ; delvp *= monoq_limiter_mult ;
+      if (delvm  < phieta) phieta = delvm ;
+      if (delvp  < phieta) phieta = delvp ;
+      if (phieta < Real_t(0.)) phieta = Real_t(0.) ;
+      if (phieta > monoq_max_slope) phieta = monoq_max_slope ;
+
+      norm = Real_t(1.) / (delv_zeta_v(i) + ptiny) ;
+      switch (bcMask & ZETA_M) {
+         case ZETA_M_COMM: case 0: delvm = delv_zeta_v(lzetam_v(i)) ; break ;
+         case ZETA_M_SYMM:         delvm = delv_zeta_v(i) ;            break ;
+         case ZETA_M_FREE:         delvm = Real_t(0.0) ;                break ;
+         default: Kokkos::abort("CalcMonotonicQForElems: bad ZETA_M") ;
+      }
+      switch (bcMask & ZETA_P) {
+         case ZETA_P_COMM: case 0: delvp = delv_zeta_v(lzetap_v(i)) ; break ;
+         case ZETA_P_SYMM:         delvp = delv_zeta_v(i) ;            break ;
+         case ZETA_P_FREE:         delvp = Real_t(0.0) ;                break ;
+         default: Kokkos::abort("CalcMonotonicQForElems: bad ZETA_P") ;
+      }
+      delvm *= norm ; delvp *= norm ;
+      phizeta = Real_t(.5) * (delvm + delvp) ;
+      delvm *= monoq_limiter_mult ; delvp *= monoq_limiter_mult ;
+      if (delvm   < phizeta) phizeta = delvm ;
+      if (delvp   < phizeta) phizeta = delvp ;
+      if (phizeta < Real_t(0.)) phizeta = Real_t(0.) ;
+      if (phizeta > monoq_max_slope) phizeta = monoq_max_slope ;
+
+      if (vdov_v(i) > Real_t(0.)) {
+         qlin  = Real_t(0.) ;
+         qquad = Real_t(0.) ;
+      } else {
+         Real_t delvxxi   = delv_xi_v(i)   * delx_xi_v(i) ;
+         Real_t delvxeta  = delv_eta_v(i)  * delx_eta_v(i) ;
+         Real_t delvxzeta = delv_zeta_v(i) * delx_zeta_v(i) ;
+         if (delvxxi   > Real_t(0.)) delvxxi   = Real_t(0.) ;
+         if (delvxeta  > Real_t(0.)) delvxeta  = Real_t(0.) ;
+         if (delvxzeta > Real_t(0.)) delvxzeta = Real_t(0.) ;
+         Real_t rho = elemMass_v(i) / (volo_v(i) * vnew(i)) ;
+         qlin = -qlc_monoq * rho *
+            ( delvxxi   * (Real_t(1.) - phixi)   +
+              delvxeta  * (Real_t(1.) - phieta)  +
+              delvxzeta * (Real_t(1.) - phizeta) ) ;
+         qquad = qqc_monoq * rho *
+            ( delvxxi*delvxxi     * (Real_t(1.) - phixi*phixi)   +
+              delvxeta*delvxeta   * (Real_t(1.) - phieta*phieta) +
+              delvxzeta*delvxzeta * (Real_t(1.) - phizeta*phizeta) ) ;
+      }
+      qq_v(i) = qquad ;
+      ql_v(i) = qlin  ;
+   }) ;
+}
+
 /******************************************/
 
 void CalcQForElems(Domain& domain, Kokkos::View<Real_t*> vnew)
@@ -291,20 +420,94 @@ void CalcQForElems(Domain& domain, Kokkos::View<Real_t*> vnew)
    Index_t numElem = domain.numElem() ;
 
    if (numElem != 0) {
-      Int_t allElem = numElem +          /* local elem */
-            2*domain.sizeX()*domain.sizeY() + /* plane ghosts */
-            2*domain.sizeX()*domain.sizeZ() + /* row ghosts */
-            2*domain.sizeY()*domain.sizeZ() ; /* col ghosts */
 
-      domain.AllocateGradients(numElem, allElem);
+#if USE_MPI
+      Index_t nx = domain.sizeX() ;
+      Index_t ny = domain.sizeY() ;
+      Index_t nz = domain.sizeZ() ;
+
+      // Post MonoQ receives as early as possible so the inbound plane traffic
+      // can overlap gradient calculation, host pull, send packing, and interior
+      // element work before the boundary subset needs the ghost data.
+      {
+         ProfileScope monoqPostTimer(ProfileTimer::monoq_post, false) ;
+         ProfileScope monoqRecvPostTimer(ProfileTimer::monoq_recv_post, false) ;
+         CommRecv(domain, MSG_MONOQ, 3, nx, ny, nz, true) ;
+      }
+#endif
 
       /* Calculate velocity gradients */
       CalcMonotonicQGradientsForElems(domain, vnew);
 
-      CalcMonotonicQForElems(domain, vnew) ;
+#if USE_MPI
+      /* Halo exchange 2 + O-E/T2 overlap:
+         1. post recv as early as possible
+         2. deep_copy to pre-allocated (O-B) host mirrors → pack → post send
+         3. compute interior elements (no ghost dependency) while messages fly
+         4. wait/unpack row+col ghosts → compute row/col-only boundary elements
+         5. wait/unpack plane ghosts → compute plane-dependent boundary elements */
+      {
+         // O-B: reuse pre-allocated mirrors — no per-step cudaMallocHost.
+         auto& dxi_h   = g_comm.monoq_dxi_h ;
+         auto& deta_h  = g_comm.monoq_deta_h ;
+         auto& dzeta_h = g_comm.monoq_dzeta_h ;
 
-      // Free up memory
-      domain.DeallocateGradients();
+         {
+            ProfileScope monoqHostPullTimer(ProfileTimer::monoq_host_pull) ;
+            Kokkos::deep_copy(dxi_h,   domain.m_elems.m_delv_xi)   ;
+            Kokkos::deep_copy(deta_h,  domain.m_elems.m_delv_eta)  ;
+            Kokkos::deep_copy(dzeta_h, domain.m_elems.m_delv_zeta) ;
+         }
+
+         std::vector<Real_t*> fields = { dxi_h.data(), deta_h.data(), dzeta_h.data() } ;
+
+         {
+            ProfileScope monoqPostTimer(ProfileTimer::monoq_post, false) ;
+            {
+               ProfileScope monoqSendPostTimer(ProfileTimer::monoq_send_post, false) ;
+               CommSend(domain, MSG_MONOQ, 3, fields, nx, ny, nz, true) ;
+            }
+         }
+
+         // O-E: interior elements have no ghost dependency — overlap with network.
+         {
+            ProfileScope monoqInteriorTimer(ProfileTimer::monoq_interior) ;
+            CalcMonotonicQForElemsSubset(domain, vnew,
+                                         g_comm.interiorElems,
+                                         "CalcMonotonicQForElems_interior") ;
+         }
+
+         // Consume row/col ghost data first so plane traffic keeps overlapping
+         // with useful boundary work instead of stalling at a single wait point.
+         {
+            ProfileScope monoqRowColWaitUnpackTimer(ProfileTimer::monoq_rowcol_wait_unpack) ;
+            CommMonoQRowCol(domain, dxi_h, deta_h, dzeta_h) ;
+         }
+
+         {
+            ProfileScope monoqRowColBoundaryTimer(ProfileTimer::monoq_rowcol_boundary) ;
+            CalcMonotonicQForElemsSubset(domain, vnew,
+                                         g_comm.rowColBoundaryElems,
+                                         "CalcMonotonicQForElems_rowcol_boundary") ;
+         }
+
+         {
+            ProfileScope monoqWaitUnpackTimer(ProfileTimer::monoq_wait_unpack) ;
+            CommMonoQPlane(domain, dxi_h, deta_h, dzeta_h) ;
+         }
+
+         {
+            ProfileScope monoqBoundaryTimer(ProfileTimer::monoq_boundary) ;
+            CalcMonotonicQForElemsSubset(domain, vnew,
+                                         g_comm.planeBoundaryElems,
+                                         "CalcMonotonicQForElems_plane_boundary") ;
+         }
+      }
+#else
+      // P2: non-MPI path uses direct RangePolicy — no index array allocation
+      // or indirection overhead per element.
+      CalcMonotonicQForElems(domain, vnew) ;
+#endif
 
       /* Don't allow excessive artificial viscosity */
       Index_t idx = -1;
@@ -316,7 +519,13 @@ void CalcQForElems(Domain& domain, Kokkos::View<Real_t*> vnew)
       }
 
       if(idx >= 0) {
-         exit(QStopError);
+#if USE_MPI
+         // MPI_Abort signals all ranks — prevents a single-rank exit from
+         // leaving the rest of the job hung in a collective.
+         MPI_Abort(MPI_COMM_WORLD, QStopError) ;
+#else
+         exit(QStopError) ;
+#endif
       }
    }
 }

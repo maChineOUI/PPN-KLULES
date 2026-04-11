@@ -1,4 +1,9 @@
 #include "lulesh-timestep.h"
+#if USE_MPI
+#include "lulesh-comm.h"
+#include "lulesh-profile.h"
+#include "lulesh-runtime.h"  // WorldComm()
+#endif
 
 /******************************************/
 
@@ -20,7 +25,10 @@ void TimeIncrement(Domain& domain)
          gnewdt = domain.dthydro() * Real_t(2.0) / Real_t(3.0) ;
       }
 
-      newdt = gnewdt;
+      // O-A: dtcourant and dthydro are already global minima from
+      // CalcTimeConstraintsForElems — all ranks compute identical gnewdt here.
+      // The allreduce was a no-op and has been removed.
+      newdt = gnewdt ;
 
       ratio = newdt / olddt ;
       if (ratio >= Real_t(1.0)) {
@@ -93,4 +101,16 @@ void CalcTimeConstraintsForElems(Domain& domain) {
 
    domain.dtcourant() = dtc ;
    domain.dthydro()   = dth ;
+
+#if USE_MPI
+   /* Reduce local courant/hydro constraints to global minimum across all ranks.
+      Each rank's local domain may have a different limiting element. */
+   g_comm.dt_send_pair(0) = dtc ;
+   g_comm.dt_send_pair(1) = dth ;
+   ProfileScope dtAllreduceTimer(ProfileTimer::dt_allreduce, false) ;
+   KokkosComm::Experimental::allreduce(WorldComm(), g_comm.dt_send_pair,
+                                       g_comm.dt_recv_pair, KokkosComm::Min{}).wait() ;
+   domain.dtcourant() = g_comm.dt_recv_pair(0) ;
+   domain.dthydro()   = g_comm.dt_recv_pair(1) ;
+#endif
 }

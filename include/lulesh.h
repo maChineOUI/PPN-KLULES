@@ -1,10 +1,16 @@
 #pragma once
 
+#include <array>
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <optional>
 #include <vector>
 #include <Kokkos_Core.hpp>
+
+#if USE_MPI
+#include <KokkosComm/KokkosComm.hpp>
+#endif
 
 
 // Precision specification
@@ -59,7 +65,7 @@ class Domain {
    public:
 
    // Constructor
-   Domain(Int_t numRanks, Index_t colLoc,
+   Domain(Int_t numRanks, Int_t myRank, Index_t colLoc,
           Index_t rowLoc, Index_t planeLoc,
           Index_t nx, Int_t tp, Int_t nr, Int_t balance, Int_t cost);
 
@@ -77,29 +83,11 @@ class Domain {
       m_elems.m_delv_zeta = Kokkos::View<Real_t*>("delv_zeta", allElem);
    }
 
-   void DeallocateGradients()
-   {
-      m_elems.m_delx_zeta = Kokkos::View<Real_t*>();
-      m_elems.m_delx_eta  = Kokkos::View<Real_t*>();
-      m_elems.m_delx_xi   = Kokkos::View<Real_t*>();
-
-      m_elems.m_delv_zeta = Kokkos::View<Real_t*>();
-      m_elems.m_delv_eta  = Kokkos::View<Real_t*>();
-      m_elems.m_delv_xi   = Kokkos::View<Real_t*>();
-   }
-
    void AllocateStrains(Int_t numElem)
    {
       m_elems.m_dxx = Kokkos::View<Real_t*>("dxx", numElem);
       m_elems.m_dyy = Kokkos::View<Real_t*>("dyy", numElem);
       m_elems.m_dzz = Kokkos::View<Real_t*>("dzz", numElem);
-   }
-
-   void DeallocateStrains()
-   {
-      m_elems.m_dzz = Kokkos::View<Real_t*>();
-      m_elems.m_dyy = Kokkos::View<Real_t*>();
-      m_elems.m_dxx = Kokkos::View<Real_t*>();
    }
 
    //
@@ -257,11 +245,19 @@ class Domain {
 
    Int_t&  cycle()                { return m_cycle ; }
    Index_t&  numRanks()           { return m_numRanks ; }
+   Int_t&  myRank()               { return m_myRank ; }
 
    Index_t&  colLoc()             { return m_colLoc ; }
    Index_t&  rowLoc()             { return m_rowLoc ; }
    Index_t&  planeLoc()           { return m_planeLoc ; }
    Index_t&  tp()                 { return m_tp ; }
+
+   Index_t&  rowMin()             { return m_rowMin ; }
+   Index_t&  rowMax()             { return m_rowMax ; }
+   Index_t&  colMin()             { return m_colMin ; }
+   Index_t&  colMax()             { return m_colMax ; }
+   Index_t&  planeMin()           { return m_planeMin ; }
+   Index_t&  planeMax()           { return m_planeMax ; }
 
    Index_t&  sizeX()              { return m_sizeX ; }
    Index_t&  sizeY()              { return m_sizeY ; }
@@ -312,6 +308,30 @@ class Domain {
       Kokkos::View<Real_t*> m_arealg;              /* characteristic length of an element */
       Kokkos::View<Real_t*> m_ss;                  /* "sound speed" */
       Kokkos::View<Real_t*> m_elemMass;            /* mass */
+
+      /* P4: persistent per-step work arrays — allocated once, reused every step.
+         vnew:  relative volume per element (kinematics → Q → EOS → UpdateVolumes).
+         determ: Jacobian determinant (IntegrateStress → CalcHourglass). */
+      Kokkos::View<Real_t*> m_vnew;
+      Kokkos::View<Real_t*> m_determ;
+
+      /* P5: pre-allocated scatter buffers for element→node force assembly.
+         Two phases use them sequentially (no data race):
+           stress:    fx_elem / fy_elem / fz_elem   (IntegrateStressForElems)
+           hourglass: hg_fx   / hg_fy   / hg_fz    (CalcHourglassControlForElems)
+         Size: numElem * 8 corners each. */
+      struct ScatterBuffers {
+         Kokkos::View<Real_t*> fx, fy, fz ;
+         Kokkos::View<Real_t*> hg_fx, hg_fy, hg_fz ;
+         void reserve(Index_t numElem8) {
+            fx    = Kokkos::View<Real_t*>("fx_elem",    numElem8) ;
+            fy    = Kokkos::View<Real_t*>("fy_elem",    numElem8) ;
+            fz    = Kokkos::View<Real_t*>("fz_elem",    numElem8) ;
+            hg_fx = Kokkos::View<Real_t*>("hg_fx_elem", numElem8) ;
+            hg_fy = Kokkos::View<Real_t*>("hg_fy_elem", numElem8) ;
+            hg_fz = Kokkos::View<Real_t*>("hg_fz_elem", numElem8) ;
+         }
+      } m_scatter;
 
       /* EOS temporaries: pre-allocated to maxRegionSize, reused each timestep.
          Region loops are serial, so one shared buffer is safe (no data race).
@@ -397,6 +417,13 @@ class Domain {
       m_elems.m_arealg   = Kokkos::View<Real_t*>("arealg",   numElem);
       m_elems.m_ss       = Kokkos::View<Real_t*>("ss",       numElem);
       m_elems.m_elemMass = Kokkos::View<Real_t*>("elemMass", numElem);
+
+      // P4: persistent work arrays — reused each timestep.
+      m_elems.m_vnew   = Kokkos::View<Real_t*>("vnew",   numElem);
+      m_elems.m_determ = Kokkos::View<Real_t*>("determ", numElem);
+
+      // P5: pre-allocate scatter buffers for element→node force assembly.
+      m_elems.m_scatter.reserve(numElem * 8);
    }
 
    void BuildMesh(Int_t nx, Int_t edgeNodes, Int_t edgeElems);
@@ -449,6 +476,7 @@ class Domain {
 
 
    Int_t   m_numRanks ;
+   Int_t   m_myRank ;
 
    Index_t m_colLoc ;
    Index_t m_rowLoc ;
@@ -468,4 +496,61 @@ class Domain {
 
 } ;
 
+#if USE_MPI
+// KokkosComm communication state stored outside the Domain class so the
+// Domain itself stays independent from transport details.
+struct DomainComm {
+   using execution_space = Kokkos::DefaultExecutionSpace ;
+   using communicator_type =
+      KokkosComm::Communicator<KokkosComm::MpiSpace, execution_space> ;
+   using request_type = KokkosComm::Request<KokkosComm::MpiSpace> ;
+   // O-F: use pinned host memory on CUDA builds so PCIe DMA bypasses the
+   // driver's internal pageable→pinned copy, improving staging bandwidth 2-4x.
+#ifdef KOKKOS_ENABLE_CUDA
+   using buffer_type = Kokkos::View<Real_t*, Kokkos::CudaHostPinnedSpace> ;
+#else
+   using buffer_type = Kokkos::View<Real_t*, Kokkos::HostSpace> ;
+#endif
 
+   std::optional<communicator_type> sbnComm ;
+   std::optional<communicator_type> monoqComm ;
+   buffer_type sendBuf ;
+   buffer_type recvBuf ;
+   std::array<request_type, 6> recvRequest ;
+   std::array<request_type, 6> sendRequest ;
+
+   // Pre-allocated allreduce staging buffers — reused every timestep.
+   buffer_type dt_send_pair ;    // CalcTimeConstraints pair (dtcourant, dthydro)
+   buffer_type dt_recv_pair ;
+
+   // O-B: pre-allocated allElem host mirrors for MonoQ halo exchange.
+   // Avoids per-step cudaMallocHost (CUDA build) or malloc (CPU build).
+   buffer_type monoq_dxi_h ;
+   buffer_type monoq_deta_h ;
+   buffer_type monoq_dzeta_h ;
+
+   // P3: pre-allocated numNode host mirrors for SBN (node-force) halo exchange.
+   buffer_type sbn_fx_h ;
+   buffer_type sbn_fy_h ;
+   buffer_type sbn_fz_h ;
+
+   // O-E/T2: element index lists for staged MonoQ overlap.
+   // interiorElems: no communicating face dependency at all.
+   // rowColBoundaryElems: may read row/col ghost data, but never plane ghost
+   //                      data, so they can run after the row/col stage while
+   //                      plane receives are still in flight.
+   // planeBoundaryElems: may read plane ghost data, so they must wait for the
+   //                     final plane unpack stage.
+   Kokkos::View<Index_t*> interiorElems ;
+   Kokkos::View<Index_t*> rowColBoundaryElems ;
+   Kokkos::View<Index_t*> planeBoundaryElems ;
+
+} ;
+
+// Global comm state (one per MPI rank / Domain instance)
+extern DomainComm g_comm ;
+#endif
+
+// Message tag constants (matching original LULESH 2.0)
+#define MSG_COMM_SBN      1024
+#define MSG_MONOQ         3072
