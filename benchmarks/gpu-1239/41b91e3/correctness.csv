@@ -1,0 +1,2 @@
+commit,version_label,threads,size,iters,elapsed_s,grind_time_us_z_c,fom,final_energy,max_abs_diff,total_abs_diff,max_rel_diff,notes
+41b91e3,gpu_port_41b91e3,1,10,50,0.04,0.80976,1234.9338,8.104796e+04,3.637979e-12,1.145950e-11,1.295895e-13,correctness_t1_s10_i50.txt

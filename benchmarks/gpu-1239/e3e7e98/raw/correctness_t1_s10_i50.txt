@@ -1,0 +1,23 @@
+Running problem size 10^3 per domain until completion
+Num processors: 1
+Num threads: 1
+Total number of elements: 1000
+
+To run other sizes, use -s <integer>.
+To run a fixed number of iterations, use -i <integer>.
+To run a more or less balanced region set, use -b <integer>.
+To change the relative costs of regions, use -c <integer>.
+To print out progress, use -p
+See help (-h) for more options
+
+Kokkos::View ERROR: attempt to access inaccessible memory space (label="e")
+Backtrace:
+[0x58b3fe4e8f09] 
+[0x58b3fe4c6fd0] 
+[0x58b3fe49362a] 
+[0x58b3fe493697] 
+[0x58b3fe4bfd1f] 
+[0x58b3fe480001] 
+[0x711a26e2a1ca] 
+[0x711a26e2a28b] __libc_start_main
+[0x58b3fe4833c5] 
