@@ -134,10 +134,21 @@ void EvalEOSForElems(Domain& domain, Kokkos::View<Real_t*> vnewc,
    // Reuse pre-allocated EOS temporaries from Domain
    auto& t = domain.eosTemps();
 
-   // Build an unmanaged View wrapping the host region element list.
-   // On OpenMP (HostSpace) this is zero-copy.  On CUDA, replace with a
-   // managed View + deep_copy before this function is called.
-   Kokkos::View<Index_t*> regElemList(regElemRaw, numElemReg) ;
+   // CPU backends (OpenMP/Serial): zero-copy — wrap the host array directly,
+   // no allocation and no copy.
+   // GPU backend (CUDA): regElemRaw lives in HostSpace; allocate device
+   // memory and transfer before the kernels run.
+#ifdef KOKKOS_ENABLE_CUDA
+   Kokkos::View<const Index_t*, Kokkos::HostSpace,
+                Kokkos::MemoryTraits<Kokkos::Unmanaged>>
+       regElemList_h(regElemRaw, numElemReg) ;
+   Kokkos::View<Index_t*> regElemList("regElemList", numElemReg) ;
+   Kokkos::deep_copy(regElemList, regElemList_h) ;
+#else
+   Kokkos::View<Index_t*, Kokkos::HostSpace,
+                Kokkos::MemoryTraits<Kokkos::Unmanaged>>
+       regElemList(regElemRaw, numElemReg) ;
+#endif
 
    // Extract domain Views needed by scatter kernels
    auto e_v    = domain.m_elems.m_e ;
