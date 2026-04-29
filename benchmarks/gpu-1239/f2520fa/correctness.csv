@@ -1,0 +1,2 @@
+commit,version_label,threads,size,iters,elapsed_s,grind_time_us_z_c,fom,final_energy,max_abs_diff,total_abs_diff,max_rel_diff,notes
+f2520fa61d10436f2a9ce9563456cb20b23b0283,f2520fa_gpu_fix,1,10,50,0.07,1.33514,748.98513,8.104796e+04,9.094947e-12,1.916532e-11,1.299261e-13,correctness_t1_s10_i50.txt
