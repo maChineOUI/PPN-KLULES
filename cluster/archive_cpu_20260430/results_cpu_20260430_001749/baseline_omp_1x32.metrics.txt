@@ -1,0 +1,4 @@
+   Final Origin Energy =  2.596764e+05
+        MaxAbsDiff   = 4.547474e-13
+Elapsed time         =       0.88 (s)
+FOM                  =  11.316269 (z/s)
