@@ -1,0 +1,2 @@
+commit,version_label,threads,size,iters,elapsed_s,grind_time_us_z_c,fom,final_energy,max_abs_diff,total_abs_diff,max_rel_diff,notes
+3003bb6,v1_openmp_refactor,1,10,50,0.04,0.82564,1211.1816,8.104796e+04,3.865352e-12,8.924685e-12,2.915758e-13,correctness_t1_s10_i50.txt

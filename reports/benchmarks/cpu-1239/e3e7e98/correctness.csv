@@ -1,0 +1,2 @@
+commit,version_label,threads,size,iters,elapsed_s,grind_time_us_z_c,fom,final_energy,max_abs_diff,total_abs_diff,max_rel_diff,notes
+e3e7e98,v9_kokkoscomm_cpu,1,10,50,0.03,0.53816,1858.1834,8.104796e+04,3.637979e-12,8.136466e-12,2.921912e-13,correctness_t1_s10_i50.txt
