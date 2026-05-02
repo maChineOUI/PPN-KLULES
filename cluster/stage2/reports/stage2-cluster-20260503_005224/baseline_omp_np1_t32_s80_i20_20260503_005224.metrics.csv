@@ -1,0 +1,2 @@
+case_id,version,section,mpi_ranks,omp_threads,size,iters,elapsed_s,fom,energy,max_abs_diff,status
+baseline_omp_np1_t32_s80_i20_20260503_005224,baseline,omp,1,32,80,20,8.7,1174.8737,8.306471e+07,2.793968e-09,PASS

@@ -1,0 +1,27 @@
+Running problem size 80^3 per domain until completion
+Num processors: 64
+Num threads: 1
+Total number of elements: 32768000
+
+To run other sizes, use -s <integer>.
+To run a fixed number of iterations, use -i <integer>.
+To run a more or less balanced region set, use -b <integer>.
+To change the relative costs of regions, use -c <integer>.
+To print out progress, use -p
+See help (-h) for more options
+
+Run completed:  
+   Problem size        =  80 
+   MPI tasks           =  64 
+   Iteration count     =  20 
+   Final Origin Energy = 5.316142e+09 
+   Testing Plane 0 of Energy Array on rank 0:
+        MaxAbsDiff   = 3.576279e-07
+        TotalAbsDiff = 3.655597e-07
+        MaxRelDiff   = 1.632263e-12
+
+
+Elapsed time         =     189.42 (s)
+Grind time (us/z/c)  =  18.497955 (per dom)  (0.28903055 overall)
+FOM                  =  3459.8418 (z/s)
+

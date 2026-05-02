@@ -1,0 +1,2 @@
+case_id,version,section,mpi_ranks,omp_threads,size,iters,elapsed_s,fom,energy,max_abs_diff,status
+kc_hybrid_np1_t64_s40_i20_20260503_010809,kc,hybrid,1,64,40,20,1.92,665.85308,1.038309e+07,1.164153e-10,PASS
