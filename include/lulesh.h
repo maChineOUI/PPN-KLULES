@@ -289,8 +289,8 @@ class Domain {
       Kokkos::View<Index_t*> m_letam, m_letap;
       Kokkos::View<Index_t*> m_lzetam, m_lzetap;
       Kokkos::View<Int_t*>   m_elemBC;             /* symmetry/free-surface flags for each elem face */
-      Kokkos::View<Index_t*> m_regElemSize;        /* size of region sets */
-      Kokkos::View<Index_t*> m_regNumList;         /* region number per domain element */
+      Kokkos::View<Index_t*, Kokkos::HostSpace> m_regElemSize; /* size of region sets */
+      Kokkos::View<Index_t*, Kokkos::HostSpace> m_regNumList;  /* region number per domain element */
       std::vector<std::vector<Index_t>> m_regElemlist; /* region indexset (jagged — keep as host vector) */
       Kokkos::View<Index_t*> m_nodeElemStart;      /* node-element index start (CSR row ptr) */
       Kokkos::View<Index_t*> m_nodeElemCornerList; /* node-element corner list (CSR col idx) */

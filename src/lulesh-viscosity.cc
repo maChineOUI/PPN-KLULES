@@ -509,16 +509,18 @@ void CalcQForElems(Domain& domain, Kokkos::View<Real_t*> vnew)
       CalcMonotonicQForElems(domain, vnew) ;
 #endif
 
-      /* Don't allow excessive artificial viscosity */
-      Index_t idx = -1;
-      for (Index_t i=0; i<numElem; ++i) {
-         if ( domain.q(i) > domain.qstop() ) {
-            idx = i ;
-            break ;
-         }
-      }
+      /* Don't allow excessive artificial viscosity.
+         m_q lives in device memory on CUDA builds, so do the scan on-device. */
+      auto q_v = domain.m_elems.m_q ;
+      const Real_t qstop = domain.qstop() ;
+      Index_t exceeded = 0 ;
+      Kokkos::parallel_reduce("QStopCheck", numElem,
+         KOKKOS_LAMBDA(Index_t i, Index_t& flag) {
+            if (q_v(i) > qstop) flag = 1 ;
+         },
+         Kokkos::Max<Index_t>(exceeded)) ;
 
-      if(idx >= 0) {
+      if(exceeded > 0) {
 #if USE_MPI
          // MPI_Abort signals all ranks — prevents a single-rank exit from
          // leaving the rest of the job hung in a collective.
