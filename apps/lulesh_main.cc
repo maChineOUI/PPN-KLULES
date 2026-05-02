@@ -251,7 +251,7 @@ int main(int argc, char *argv[])
       CommTeardown() ;
 #endif
    } // end Kokkos scope
-   Kokkos::finalize();
    FinalizeDistributedRuntime() ;
+   Kokkos::finalize();
    return 0 ;
 }
