@@ -1,0 +1,2 @@
+case_id,version,section,mpi_ranks,omp_threads,size,iters,elapsed_s,fom,energy,max_abs_diff,status
+baseline_omp_np1_t2_s40_i20_bindcore_20260504_065757,baseline,omp,1,2,40,20,0.82,1567.4812,1.038309e+07,1.164153e-10,PASS

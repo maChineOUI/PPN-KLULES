@@ -1,0 +1,6 @@
+case_id,version,section,mpi_ranks,omp_threads,size,iters,ntasks,cpus_per_task,exec_path,mpi_binding_mode
+kc_omp_np1_t58_s80_i20_bindcore_20260504_070730,kc,omp,1,58,80,20,1,58,/phadcloud/home/phadcloud65np17907/build-cluster-kc/lulesh2.0,core
+kc_omp_np1_t59_s80_i20_bindcore_20260504_070730,kc,omp,1,59,80,20,1,59,/phadcloud/home/phadcloud65np17907/build-cluster-kc/lulesh2.0,core
+kc_omp_np1_t60_s80_i20_bindcore_20260504_070730,kc,omp,1,60,80,20,1,60,/phadcloud/home/phadcloud65np17907/build-cluster-kc/lulesh2.0,core
+kc_omp_np1_t61_s80_i20_bindcore_20260504_070730,kc,omp,1,61,80,20,1,61,/phadcloud/home/phadcloud65np17907/build-cluster-kc/lulesh2.0,core
+kc_omp_np1_t62_s80_i20_bindcore_20260504_070730,kc,omp,1,62,80,20,1,62,/phadcloud/home/phadcloud65np17907/build-cluster-kc/lulesh2.0,core

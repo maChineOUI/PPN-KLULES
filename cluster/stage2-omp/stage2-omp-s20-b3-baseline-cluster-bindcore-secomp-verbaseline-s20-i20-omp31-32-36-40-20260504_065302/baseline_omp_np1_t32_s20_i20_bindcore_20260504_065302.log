@@ -1,0 +1,34 @@
+[node60.prod.phadcloud.local:1755024] MCW rank 0 bound to socket 0[core 0[hwt 0]]: [B/././././././././././.][./././././././././././././././././././.]
+--------------------------------------------------------------------------
+WARNING: There was an error initializing an OpenFabrics device.
+
+  Local host:   node60
+  Local device: mlx5_0
+--------------------------------------------------------------------------
+Running problem size 20^3 per domain until completion
+Num processors: 1
+Num threads: 32
+Total number of elements: 8000 
+
+To run other sizes, use -s <integer>.
+To run a fixed number of iterations, use -i <integer>.
+To run a more or less balanced region set, use -b <integer>.
+To change the relative costs of regions, use -c <integer>.
+To print out progress, use -p
+To write an output file for VisIt, use -v
+See help (-h) for more options
+
+Run completed:
+   Problem size        =  20
+   MPI tasks           =  1
+   Iteration count     =  20
+   Final Origin Energy =  1.297886e+06
+   Testing Plane 0 of Energy Array on rank 0:
+        MaxAbsDiff   = 8.731149e-11
+        TotalAbsDiff = 8.924449e-11
+        MaxRelDiff   = 5.455196e-13
+
+Elapsed time         =        1.6 (s)
+Grind time (us/z/c)  =  10.234947 (per dom)  ( 1.6375915 overall)
+FOM                  =  97.704462 (z/s)
+
