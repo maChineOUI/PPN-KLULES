@@ -1,0 +1,40 @@
+[node60.prod.phadcloud.local:1734036] [[15064,0],0] ORTE_ERROR_LOG: Data unpack would read past end of buffer in file util/show_help.c at line 501
+--------------------------------------------------------------------------
+WARNING: There was an error initializing an OpenFabrics device.
+
+  Local host:   node60
+  Local device: mlx5_0
+--------------------------------------------------------------------------
+[node60.prod.phadcloud.local:1734036] [[15064,0],0] ORTE_ERROR_LOG: Out of resource in file util/show_help.c at line 507
+[node60.prod.phadcloud.local:1734036] [[15064,0],0] ORTE_ERROR_LOG: Out of resource in file util/show_help.c at line 507
+[node60.prod.phadcloud.local:1734036] [[15064,0],0] ORTE_ERROR_LOG: Data unpack would read past end of buffer in file util/show_help.c at line 501
+[node60.prod.phadcloud.local:1734036] [[15064,0],0] ORTE_ERROR_LOG: Data unpack would read past end of buffer in file util/show_help.c at line 501
+[node60.prod.phadcloud.local:1734036] [[15064,0],0] ORTE_ERROR_LOG: Out of resource in file util/show_help.c at line 507
+[node60.prod.phadcloud.local:1734036] [[15064,0],0] ORTE_ERROR_LOG: Out of resource in file util/show_help.c at line 507
+Running problem size 120^3 per domain until completion
+Num processors: 8
+Num threads: 2
+Total number of elements: 13824000
+
+To run other sizes, use -s <integer>.
+To run a fixed number of iterations, use -i <integer>.
+To run a more or less balanced region set, use -b <integer>.
+To change the relative costs of regions, use -c <integer>.
+To print out progress, use -p
+See help (-h) for more options
+
+Run completed:  
+   Problem size        =  120 
+   MPI tasks           =  8 
+   Iteration count     =  20 
+   Final Origin Energy = 2.242747e+09 
+   Testing Plane 0 of Energy Array on rank 0:
+        MaxAbsDiff   = 2.086163e-07
+        TotalAbsDiff = 2.161873e-07
+        MaxRelDiff   = 2.800676e-13
+
+
+Elapsed time         =      82.32 (s)
+Grind time (us/z/c)  =  2.3820312 (per dom)  ( 0.2977539 overall)
+FOM                  =  3358.4782 (z/s)
+

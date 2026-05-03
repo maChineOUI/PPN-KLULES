@@ -1,0 +1,35 @@
+--------------------------------------------------------------------------
+WARNING: There was an error initializing an OpenFabrics device.
+
+  Local host:   node217
+  Local device: mlx5_0
+--------------------------------------------------------------------------
+Running problem size 80^3 per domain until completion
+Num processors: 27
+Num threads: 3
+Total number of elements: 13824000
+
+To run other sizes, use -s <integer>.
+To run a fixed number of iterations, use -i <integer>.
+To run a more or less balanced region set, use -b <integer>.
+To change the relative costs of regions, use -c <integer>.
+To print out progress, use -p
+See help (-h) for more options
+
+[node217.prod.phadcloud.local:937161] 26 more processes have sent help message help-mpi-btl-openib.txt / error in device init
+[node217.prod.phadcloud.local:937161] Set MCA parameter "orte_base_help_aggregate" to 0 to see all help / error messages
+Run completed:  
+   Problem size        =  80 
+   MPI tasks           =  27 
+   Iteration count     =  20 
+   Final Origin Energy = 2.242747e+09 
+   Testing Plane 0 of Energy Array on rank 0:
+        MaxAbsDiff   = 2.086163e-07
+        TotalAbsDiff = 2.161873e-07
+        MaxRelDiff   = 2.800676e-13
+
+
+Elapsed time         =      76.65 (s)
+Grind time (us/z/c)  =  7.4854715 (per dom)  (0.27723968 overall)
+FOM                  =  3606.9872 (z/s)
+

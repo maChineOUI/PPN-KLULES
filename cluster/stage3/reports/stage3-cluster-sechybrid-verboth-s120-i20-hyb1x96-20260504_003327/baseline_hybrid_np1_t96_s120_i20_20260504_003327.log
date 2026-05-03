@@ -1,0 +1,33 @@
+--------------------------------------------------------------------------
+WARNING: There was an error initializing an OpenFabrics device.
+
+  Local host:   node60
+  Local device: mlx5_0
+--------------------------------------------------------------------------
+Running problem size 120^3 per domain until completion
+Num processors: 1
+Num threads: 96
+Total number of elements: 1728000 
+
+To run other sizes, use -s <integer>.
+To run a fixed number of iterations, use -i <integer>.
+To run a more or less balanced region set, use -b <integer>.
+To change the relative costs of regions, use -c <integer>.
+To print out progress, use -p
+To write an output file for VisIt, use -v
+See help (-h) for more options
+
+Run completed:
+   Problem size        =  120
+   MPI tasks           =  1
+   Iteration count     =  20
+   Final Origin Energy =  2.803434e+08
+   Testing Plane 0 of Energy Array on rank 0:
+        MaxAbsDiff   = 3.725290e-09
+        TotalAbsDiff = 3.842665e-09
+        MaxRelDiff   = 7.075801e-13
+
+Elapsed time         =         28 (s)
+Grind time (us/z/c)  =  0.8119769 (per dom)  ( 28.061922 overall)
+FOM                  =  1231.5621 (z/s)
+
