@@ -1,0 +1,62 @@
+[node60.prod.phadcloud.local:1750660] MCW rank 20 bound to socket 0[core 20[hwt 0]]: [././././././././././././././././././././B/././././.][.]
+[node60.prod.phadcloud.local:1750660] MCW rank 21 bound to socket 0[core 21[hwt 0]]: [./././././././././././././././././././././B/./././.][.]
+[node60.prod.phadcloud.local:1750660] MCW rank 22 bound to socket 0[core 22[hwt 0]]: [././././././././././././././././././././././B/././.][.]
+[node60.prod.phadcloud.local:1750660] MCW rank 23 bound to socket 0[core 23[hwt 0]]: [./././././././././././././././././././././././B/./.][.]
+[node60.prod.phadcloud.local:1750660] MCW rank 24 bound to socket 0[core 24[hwt 0]]: [././././././././././././././././././././././././B/.][.]
+[node60.prod.phadcloud.local:1750660] MCW rank 25 bound to socket 0[core 25[hwt 0]]: [./././././././././././././././././././././././././B][.]
+[node60.prod.phadcloud.local:1750660] MCW rank 26 bound to socket 1[core 26[hwt 0]]: [./././././././././././././././././././././././././.][B]
+[node60.prod.phadcloud.local:1750660] MCW rank 0 bound to socket 0[core 0[hwt 0]]: [B/././././././././././././././././././././././././.][.]
+[node60.prod.phadcloud.local:1750660] MCW rank 1 bound to socket 0[core 1[hwt 0]]: [./B/./././././././././././././././././././././././.][.]
+[node60.prod.phadcloud.local:1750660] MCW rank 2 bound to socket 0[core 2[hwt 0]]: [././B/././././././././././././././././././././././.][.]
+[node60.prod.phadcloud.local:1750660] MCW rank 3 bound to socket 0[core 3[hwt 0]]: [./././B/./././././././././././././././././././././.][.]
+[node60.prod.phadcloud.local:1750660] MCW rank 4 bound to socket 0[core 4[hwt 0]]: [././././B/././././././././././././././././././././.][.]
+[node60.prod.phadcloud.local:1750660] MCW rank 5 bound to socket 0[core 5[hwt 0]]: [./././././B/./././././././././././././././././././.][.]
+[node60.prod.phadcloud.local:1750660] MCW rank 6 bound to socket 0[core 6[hwt 0]]: [././././././B/././././././././././././././././././.][.]
+[node60.prod.phadcloud.local:1750660] MCW rank 7 bound to socket 0[core 7[hwt 0]]: [./././././././B/./././././././././././././././././.][.]
+[node60.prod.phadcloud.local:1750660] MCW rank 8 bound to socket 0[core 8[hwt 0]]: [././././././././B/././././././././././././././././.][.]
+[node60.prod.phadcloud.local:1750660] MCW rank 9 bound to socket 0[core 9[hwt 0]]: [./././././././././B/./././././././././././././././.][.]
+[node60.prod.phadcloud.local:1750660] MCW rank 10 bound to socket 0[core 10[hwt 0]]: [././././././././././B/././././././././././././././.][.]
+[node60.prod.phadcloud.local:1750660] MCW rank 11 bound to socket 0[core 11[hwt 0]]: [./././././././././././B/./././././././././././././.][.]
+[node60.prod.phadcloud.local:1750660] MCW rank 12 bound to socket 0[core 12[hwt 0]]: [././././././././././././B/././././././././././././.][.]
+[node60.prod.phadcloud.local:1750660] MCW rank 13 bound to socket 0[core 13[hwt 0]]: [./././././././././././././B/./././././././././././.][.]
+[node60.prod.phadcloud.local:1750660] MCW rank 14 bound to socket 0[core 14[hwt 0]]: [././././././././././././././B/././././././././././.][.]
+[node60.prod.phadcloud.local:1750660] MCW rank 15 bound to socket 0[core 15[hwt 0]]: [./././././././././././././././B/./././././././././.][.]
+[node60.prod.phadcloud.local:1750660] MCW rank 16 bound to socket 0[core 16[hwt 0]]: [././././././././././././././././B/././././././././.][.]
+[node60.prod.phadcloud.local:1750660] MCW rank 17 bound to socket 0[core 17[hwt 0]]: [./././././././././././././././././B/./././././././.][.]
+[node60.prod.phadcloud.local:1750660] MCW rank 18 bound to socket 0[core 18[hwt 0]]: [././././././././././././././././././B/././././././.][.]
+[node60.prod.phadcloud.local:1750660] MCW rank 19 bound to socket 0[core 19[hwt 0]]: [./././././././././././././././././././B/./././././.][.]
+--------------------------------------------------------------------------
+WARNING: There was an error initializing an OpenFabrics device.
+
+  Local host:   node60
+  Local device: mlx5_0
+--------------------------------------------------------------------------
+Running problem size 80^3 per domain until completion
+Num processors: 27
+Num threads: 1
+Total number of elements: 13824000
+
+To run other sizes, use -s <integer>.
+To run a fixed number of iterations, use -i <integer>.
+To run a more or less balanced region set, use -b <integer>.
+To change the relative costs of regions, use -c <integer>.
+To print out progress, use -p
+See help (-h) for more options
+
+[node60.prod.phadcloud.local:1750660] 26 more processes have sent help message help-mpi-btl-openib.txt / error in device init
+[node60.prod.phadcloud.local:1750660] Set MCA parameter "orte_base_help_aggregate" to 0 to see all help / error messages
+Run completed:  
+   Problem size        =  80 
+   MPI tasks           =  27 
+   Iteration count     =  20 
+   Final Origin Energy = 2.242747e+09 
+   Testing Plane 0 of Energy Array on rank 0:
+        MaxAbsDiff   = 2.086163e-07
+        TotalAbsDiff = 2.161873e-07
+        MaxRelDiff   = 2.800676e-13
+
+
+Elapsed time         =       6.11 (s)
+Grind time (us/z/c)  = 0.59696875 (per dom)  (0.022109954 overall)
+FOM                  =  45228.498 (z/s)
+

@@ -1,0 +1,2 @@
+case_id,version,section,mpi_ranks,omp_threads,size,iters,ntasks,cpus_per_task,exec_path,mpi_binding_mode
+kc_mpi_np27_t1_s40_i20_bindcore_20260504_062223,kc,mpi,27,1,40,20,27,1,/phadcloud/home/phadcloud65np17907/build-cluster-kc/lulesh2.0,core
