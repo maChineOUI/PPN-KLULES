@@ -1,2 +1,0 @@
-case_id,version,section,mpi_ranks,omp_threads,size,iters,elapsed_s,fom,energy,max_abs_diff,status
-kc_omp_np1_t2_s40_i20_20260503_005609,kc,omp,1,2,40,20,0.80,1598.2719,1.038309e+07,1.164153e-10,PASS

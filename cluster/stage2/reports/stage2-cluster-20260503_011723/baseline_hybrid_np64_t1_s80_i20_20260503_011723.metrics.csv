@@ -1,2 +1,0 @@
-case_id,version,section,mpi_ranks,omp_threads,size,iters,elapsed_s,fom,energy,max_abs_diff,status
-baseline_hybrid_np64_t1_s80_i20_20260503_011723,baseline,hybrid,64,1,80,20,2e+02,3241.4008,5.316142e+09,2.980232e-07,PASS

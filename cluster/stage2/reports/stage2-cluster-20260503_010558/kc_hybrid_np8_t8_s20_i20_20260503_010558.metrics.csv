@@ -1,2 +1,0 @@
-case_id,version,section,mpi_ranks,omp_threads,size,iters,elapsed_s,fom,energy,max_abs_diff,status
-kc_hybrid_np8_t8_s20_i20_20260503_010558,kc,hybrid,8,8,20,20,9.53,134.28012,1.038309e+07,1.164153e-10,PASS

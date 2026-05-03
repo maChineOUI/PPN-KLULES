@@ -1,2 +1,0 @@
-case_id,version,section,mpi_ranks,omp_threads,size,iters,elapsed_s,fom,energy,max_abs_diff,status
-baseline_hybrid_np27_t2_s80_i20_20260503_011723,baseline,hybrid,27,2,80,20,1.9e+02,1429.1623,2.242747e+09,2.086163e-07,PASS

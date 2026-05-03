@@ -1,2 +1,0 @@
-case_id,version,section,mpi_ranks,omp_threads,size,iters,elapsed_s,fom,energy,max_abs_diff,status
-baseline_hybrid_np8_t8_s80_i20_20260503_011137,baseline,hybrid,8,8,80,20,1.2e+02,677.90548,6.645177e+08,7.450581e-09,PASS

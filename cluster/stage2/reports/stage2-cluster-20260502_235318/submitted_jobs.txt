@@ -1,2 +1,0 @@
-286599 baseline_mpi_np27_t1_s40_i20
-286600 kc_mpi_np27_t1_s40_i20

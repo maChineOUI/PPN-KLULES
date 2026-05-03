@@ -1,2 +1,0 @@
-case_id,version,section,mpi_ranks,omp_threads,size,iters,elapsed_s,fom,energy,max_abs_diff,status
-kc_hybrid_np27_t2_s20_i20_20260503_010703,kc,hybrid,27,2,20,20,20.87,206.9658,3.504293e+07,1.396984e-09,PASS
