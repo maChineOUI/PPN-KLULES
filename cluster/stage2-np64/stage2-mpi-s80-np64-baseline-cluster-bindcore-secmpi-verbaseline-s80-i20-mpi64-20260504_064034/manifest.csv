@@ -1,0 +1,2 @@
+case_id,version,section,mpi_ranks,omp_threads,size,iters,ntasks,cpus_per_task,exec_path,mpi_binding_mode
+baseline_mpi_np64_t1_s80_i20_bindcore_20260504_064034,baseline,mpi,64,1,80,20,64,1,/phadcloud/home/phadcloud65np17907/build-lulesh-baseline/lulesh2.0,core
