@@ -63,7 +63,7 @@ OMP 线程数选取覆盖关键 NUMA 拓扑边界：t=30（NUMA 0/1 边界），
 
 ### 3.1 FOM 与强扩展性
 
-![图1 纯 MPI 强扩展性](figures/fig1_mpi_scaling.png)
+![图1 纯 MPI 强扩展性](figures/fom_strong_scaling_updated.png)
 
 **图1** 展示了 FOM 随 MPI 进程数的变化。灰色虚线为以 baseline np=1 为基准的理想线性扩展。两个版本均紧贴理想线（s80 甚至超出），说明在 np=8 时扩展效率接近 100%，域内缓存效率随子域缩小而提升产生了超线性效果。np=27 时曲线开始偏离理想线，通信开销逐渐显现。
 
