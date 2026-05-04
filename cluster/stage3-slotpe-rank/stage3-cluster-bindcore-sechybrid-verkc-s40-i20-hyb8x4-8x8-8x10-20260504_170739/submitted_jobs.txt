@@ -1,0 +1,3 @@
+645827 kc_hybrid_np8_t4_s40_i20_bindcore_20260504_170739
+645828 kc_hybrid_np8_t8_s40_i20_bindcore_20260504_170739
+645829 kc_hybrid_np8_t10_s40_i20_bindcore_20260504_170739

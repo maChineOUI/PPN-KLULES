@@ -1,0 +1,53 @@
+CASE_LABEL=baseline_hybrid_np8_t10_s20_i20_bindcore_20260504_171030
+SECTION_NAME=hybrid
+MPI_BINDING_MODE=core
+HYBRID_LAYOUT_MODE=slotpe
+OMP_NUM_THREADS=10
+OMP_PLACES=cores
+OMP_PROC_BIND=close
+MPI_CMD=mpirun --map-by slot:PE=10 --bind-to core -np 8 /phadcloud/home/phadcloud65np17907/build-lulesh-baseline/lulesh2.0 -s 20 -i 20
+Model name:                         INTEL(R) XEON(R) PLATINUM 8581C
+Thread(s) per core:                 1
+Core(s) per socket:                 60
+Socket(s):                          2
+NUMA node(s):                       4
+NUMA node0 CPU(s):                  0-29
+NUMA node1 CPU(s):                  30-59
+NUMA node2 CPU(s):                  60-89
+NUMA node3 CPU(s):                  90-119
+
+--------------------------------------------------------------------------
+WARNING: There was an error initializing an OpenFabrics device.
+
+  Local host:   node60
+  Local device: mlx5_0
+--------------------------------------------------------------------------
+Running problem size 20^3 per domain until completion
+Num processors: 8
+Num threads: 10
+Total number of elements: 64000 
+
+To run other sizes, use -s <integer>.
+To run a fixed number of iterations, use -i <integer>.
+To run a more or less balanced region set, use -b <integer>.
+To change the relative costs of regions, use -c <integer>.
+To print out progress, use -p
+To write an output file for VisIt, use -v
+See help (-h) for more options
+
+Run completed:
+   Problem size        =  20
+   MPI tasks           =  8
+   Iteration count     =  20
+   Final Origin Energy =  1.038309e+07
+   Testing Plane 0 of Energy Array on rank 0:
+        MaxAbsDiff   = 1.164153e-10
+        TotalAbsDiff = 1.259809e-10
+        MaxRelDiff   = 9.289033e-13
+
+Elapsed time         =       0.13 (s)
+Grind time (us/z/c)  = 0.83174979 (per dom)  (0.13307997 overall)
+FOM                  =  9618.2772 (z/s)
+
+[node60.prod.phadcloud.local:1784482] 7 more processes have sent help message help-mpi-btl-openib.txt / error in device init
+[node60.prod.phadcloud.local:1784482] Set MCA parameter "orte_base_help_aggregate" to 0 to see all help / error messages

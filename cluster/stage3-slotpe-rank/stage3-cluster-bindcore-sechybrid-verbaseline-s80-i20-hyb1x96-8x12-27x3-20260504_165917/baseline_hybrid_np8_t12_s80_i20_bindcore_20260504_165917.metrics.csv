@@ -1,0 +1,2 @@
+case_id,version,section,mpi_ranks,omp_threads,size,iters,elapsed_s,fom,energy,max_abs_diff,status
+baseline_hybrid_np8_t12_s80_i20_bindcore_20260504_165917,baseline,hybrid,8,12,80,20,1.5,54321.157,6.645177e+08,7.450581e-09,PASS

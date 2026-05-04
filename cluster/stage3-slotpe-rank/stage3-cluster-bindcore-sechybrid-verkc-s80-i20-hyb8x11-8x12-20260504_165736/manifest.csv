@@ -1,0 +1,3 @@
+case_id,version,section,mpi_ranks,omp_threads,size,iters,ntasks,cpus_per_task,exec_path,mpi_binding_mode,hybrid_layout_mode,omp_places_mode,omp_proc_bind_mode
+kc_hybrid_np8_t11_s80_i20_bindcore_20260504_165736,kc,hybrid,8,11,80,20,8,11,/phadcloud/home/phadcloud65np17907/build-cluster-kc/lulesh2.0,core,slotpe,cores,close
+kc_hybrid_np8_t12_s80_i20_bindcore_20260504_165736,kc,hybrid,8,12,80,20,8,12,/phadcloud/home/phadcloud65np17907/build-cluster-kc/lulesh2.0,core,slotpe,cores,close

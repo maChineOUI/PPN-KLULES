@@ -1,0 +1,2 @@
+645803 baseline_hybrid_np8_t11_s80_i20_bindcore_20260504_165500
+645804 baseline_hybrid_np8_t12_s80_i20_bindcore_20260504_165500
