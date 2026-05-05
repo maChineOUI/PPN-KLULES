@@ -1,0 +1,2 @@
+case_id,version,section,mpi_ranks,omp_threads,size,iters,elapsed_s,fom,energy,max_abs_diff,status
+kc_mpi_np64_t1_s80_i20_bindcore_20260504_063634,kc,mpi,64,1,80,20,10.77,60823.905,5.316142e+09,3.576279e-07,PASS
