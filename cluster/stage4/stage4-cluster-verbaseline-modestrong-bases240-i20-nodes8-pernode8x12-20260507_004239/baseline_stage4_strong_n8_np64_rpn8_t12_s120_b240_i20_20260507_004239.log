@@ -1,0 +1,51 @@
+--------------------------------------------------------------------------
+WARNING: There was an error initializing an OpenFabrics device.
+
+  Local host:   node154
+  Local device: mlx5_0
+--------------------------------------------------------------------------
+[1778085762.163344] [node157:1256138:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778085762.268836] [node157:1256143:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778085762.273098] [node157:1256135:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778085762.274518] [node157:1256132:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778085762.274873] [node157:1256134:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778085762.275106] [node157:1256133:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778085762.275453] [node157:1256139:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778085762.275686] [node157:1256140:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778085762.514095] [node157:1256143:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778085762.514166] [node157:1256139:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778085762.514110] [node157:1256138:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778085762.514183] [node157:1256140:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778085762.514113] [node157:1256135:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778085762.514153] [node157:1256134:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778085762.514094] [node157:1256132:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778085762.515676] [node157:1256133:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+Running problem size 120^3 per domain until completion
+Num processors: 64
+Num threads: 12
+Total number of elements: 110592000 
+
+To run other sizes, use -s <integer>.
+To run a fixed number of iterations, use -i <integer>.
+To run a more or less balanced region set, use -b <integer>.
+To change the relative costs of regions, use -c <integer>.
+To print out progress, use -p
+To write an output file for VisIt, use -v
+See help (-h) for more options
+
+[node154.prod.phadcloud.local:3732871] 63 more processes have sent help message help-mpi-btl-openib.txt / error in device init
+[node154.prod.phadcloud.local:3732871] Set MCA parameter "orte_base_help_aggregate" to 0 to see all help / error messages
+Run completed:
+   Problem size        =  120
+   MPI tasks           =  64
+   Iteration count     =  20
+   Final Origin Energy =  1.794198e+10
+   Testing Plane 0 of Energy Array on rank 0:
+        MaxAbsDiff   = 7.152557e-07
+        TotalAbsDiff = 8.950704e-07
+        MaxRelDiff   = 1.976465e-12
+
+Elapsed time         =        7.2 (s)
+Grind time (us/z/c)  = 0.20787933 (per dom)  ( 7.1843097 overall)
+FOM                  =  307870.91 (z/s)
+

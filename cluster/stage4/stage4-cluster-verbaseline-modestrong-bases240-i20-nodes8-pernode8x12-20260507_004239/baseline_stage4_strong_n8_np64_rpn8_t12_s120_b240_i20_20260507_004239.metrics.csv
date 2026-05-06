@@ -1,0 +1,2 @@
+case_id,version,section,scaling_mode,node_count,ranks_per_node,mpi_ranks,omp_threads,base_size,size,iters,elapsed_s,fom,energy,max_abs_diff,status
+baseline_stage4_strong_n8_np64_rpn8_t12_s120_b240_i20_20260507_004239,baseline,stage4,strong,8,8,64,12,240,120,20,7.2,307870.91,1.794198e+10,7.152557e-07,PASS

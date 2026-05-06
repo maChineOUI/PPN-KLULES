@@ -1,0 +1,51 @@
+--------------------------------------------------------------------------
+WARNING: There was an error initializing an OpenFabrics device.
+
+  Local host:   node157
+  Local device: mlx5_0
+--------------------------------------------------------------------------
+[1778085752.318099] [node157:1255977:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778085752.394837] [node157:1255979:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778085752.408738] [node157:1255978:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778085752.409000] [node157:1255980:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778085752.409246] [node157:1255983:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778085752.409882] [node157:1255984:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778085752.414857] [node157:1255985:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778085752.431799] [node157:1255988:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778085752.671297] [node157:1255985:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778085752.671393] [node157:1255988:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778085752.671330] [node157:1255979:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778085752.671284] [node157:1255977:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778085752.671281] [node157:1255978:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778085752.671330] [node157:1255980:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778085752.671335] [node157:1255984:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778085752.672331] [node157:1255983:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+Running problem size 80^3 per domain until completion
+Num processors: 64
+Num threads: 12
+Total number of elements: 32768000 
+
+To run other sizes, use -s <integer>.
+To run a fixed number of iterations, use -i <integer>.
+To run a more or less balanced region set, use -b <integer>.
+To change the relative costs of regions, use -c <integer>.
+To print out progress, use -p
+To write an output file for VisIt, use -v
+See help (-h) for more options
+
+Run completed:
+   Problem size        =  80
+   MPI tasks           =  64
+   Iteration count     =  20
+   Final Origin Energy =  5.316142e+09
+   Testing Plane 0 of Energy Array on rank 0:
+        MaxAbsDiff   = 3.576279e-07
+        TotalAbsDiff = 3.655597e-07
+        MaxRelDiff   = 1.632263e-12
+
+Elapsed time         =        2.2 (s)
+Grind time (us/z/c)  = 0.21693607 (per dom)  ( 2.2214253 overall)
+FOM                  =  295017.79 (z/s)
+
+[node154.prod.phadcloud.local:3732604] 63 more processes have sent help message help-mpi-btl-openib.txt / error in device init
+[node154.prod.phadcloud.local:3732604] Set MCA parameter "orte_base_help_aggregate" to 0 to see all help / error messages
