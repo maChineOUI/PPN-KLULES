@@ -324,7 +324,7 @@ def plot_stage4_strong_fom(stage4_rows: list[dict[str, str]], out_dir: Path) -> 
     ax.set_xlabel("Local problem size s")
     ax.set_ylabel("FOM (z/s)")
     ax.set_xticks(actual_sizes, [str(size) for size in actual_sizes])
-    ax.legend(frameon=False, loc="upper left")
+    ax.legend(frameon=False, loc="upper left",bbox_to_anchor=(0.0, 1.03), ncol=2)
 
     fig.tight_layout()
     fig.savefig(out_dir / "stage4_strong_fom.png", bbox_inches="tight")
@@ -464,9 +464,9 @@ def plot_stage3_stage4_fom(
         ax.set_xticks(sizes, [str(size) for size in sizes])
         ax.set_xlabel("Local problem size s")
         if idx == 0:
-            ax.legend(frameon=False, loc="lower left", bbox_to_anchor=(0.0, 1.03))
+            ax.legend(frameon=False, loc="lower left", bbox_to_anchor=(0.0, 1.10))
         else:
-            ax.legend(frameon=False, loc="lower right", bbox_to_anchor=(1.0, 1.03))
+            ax.legend(frameon=False, loc="lower right", bbox_to_anchor=(1.0, 1.10))
 
     axes[0].set_ylabel("FOM (z/s)")
     fig.suptitle("Stage 3 vs Stage 4 FOM (Bind-to-Core)", fontsize=15, y=1.02)
