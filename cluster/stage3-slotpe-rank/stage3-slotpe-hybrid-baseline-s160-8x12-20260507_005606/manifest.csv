@@ -1,0 +1,2 @@
+case_id,version,section,mpi_ranks,omp_threads,size,iters,ntasks,cpus_per_task,exec_path,mpi_binding_mode,hybrid_layout_mode,omp_places_mode,omp_proc_bind_mode
+baseline_hybrid_np8_t12_s160_i20_bindcore_20260507_005606,baseline,hybrid,8,12,160,20,8,12,/phadcloud/home/phadcloud65np17907/build-lulesh-baseline/lulesh2.0,core,slotpe,cores,close

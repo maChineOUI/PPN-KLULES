@@ -111,8 +111,55 @@ def common_stage3_stage4_sizes(
     return sorted(stage3_sizes & stage4_sizes)
 
 
+def stage4_weak_sizes(stage4_rows: list[dict[str, str]]) -> list[int]:
+    sizes = {
+        int(row["size"])
+        for row in stage4_rows
+        if row.get("scaling_mode") == "weak"
+        and row.get("node_count") == "8"
+        and row.get("version") in {"baseline", "kc"}
+    }
+    return sorted(sizes)
+
+
+def stage4_strong_points(
+    stage4_rows: list[dict[str, str]],
+) -> tuple[list[int], list[float], list[float]]:
+    base_sizes = sorted(
+        {
+            int(row["base_size"])
+            for row in stage4_rows
+            if row.get("scaling_mode") == "strong"
+            and row.get("node_count") == "8"
+            and row.get("version") in {"baseline", "kc"}
+        }
+    )
+    actual_sizes = []
+    baseline = []
+    kc = []
+    for base_size in base_sizes:
+        b_row = pick_unique(
+            stage4_rows,
+            scaling_mode="strong",
+            node_count=8,
+            base_size=base_size,
+            version="baseline",
+        )
+        k_row = pick_unique(
+            stage4_rows,
+            scaling_mode="strong",
+            node_count=8,
+            base_size=base_size,
+            version="kc",
+        )
+        actual_sizes.append(int(b_row["size"]))
+        baseline.append(as_float(b_row, "fom"))
+        kc.append(as_float(k_row, "fom"))
+    return actual_sizes, baseline, kc
+
+
 def plot_stage4_weak_fom(stage4_rows: list[dict[str, str]], out_dir: Path) -> None:
-    sizes = [80, 120]
+    sizes = stage4_weak_sizes(stage4_rows)
     baseline = [
         as_float(
             pick_unique(
@@ -212,73 +259,72 @@ def plot_stage4_weak_fom(stage4_rows: list[dict[str, str]], out_dir: Path) -> No
 
 
 def plot_stage4_strong_fom(stage4_rows: list[dict[str, str]], out_dir: Path) -> None:
-    baseline = as_float(
-        pick_unique(
-            stage4_rows,
-            scaling_mode="strong",
-            node_count=8,
-            base_size=120,
-            size=60,
-            version="baseline",
-        ),
-        "fom",
-    )
-    kc = as_float(
-        pick_unique(
-            stage4_rows,
-            scaling_mode="strong",
-            node_count=8,
-            base_size=120,
-            size=60,
-            version="kc",
-        ),
-        "fom",
-    )
+    actual_sizes, baseline, kc = stage4_strong_points(stage4_rows)
 
-    fig, ax = plt.subplots(figsize=(8.2, 4.0))
+    fig, ax = plt.subplots(figsize=(8.6, 5.4))
     ax.set_facecolor(C_FILL)
-    y = 0
-    ax.hlines(y, baseline, kc, color="#AAB2BD", linewidth=6, zorder=1)
-    ax.scatter([baseline], [y], s=220, color=C_BASE, zorder=3, label="baseline")
-    ax.scatter([kc], [y], s=220, color=C_KC, zorder=3, label="kc")
-    uplift = ((kc - baseline) / baseline) * 100.0
-
-    ax.annotate(
-        f"baseline\n{baseline:.0f}",
-        (baseline, y),
-        xytext=(0, 16),
-        textcoords="offset points",
-        ha="center",
+    ax.fill_between(actual_sizes, baseline, kc, color="#8FB8FF", alpha=0.16, zorder=1)
+    ax.plot(
+        actual_sizes,
+        baseline,
         color=C_BASE,
-        fontsize=10,
-        fontweight="bold",
+        marker="o",
+        markersize=10,
+        linewidth=3,
+        label="baseline",
     )
-    ax.annotate(
-        f"kc\n{kc:.0f}",
-        (kc, y),
-        xytext=(0, 16),
-        textcoords="offset points",
-        ha="center",
+    ax.plot(
+        actual_sizes,
+        kc,
         color=C_KC,
-        fontsize=10,
-        fontweight="bold",
+        marker="o",
+        markersize=10,
+        linewidth=3,
+        label="kc",
     )
-    ax.annotate(
-        f"+{uplift:.1f}%",
-        ((baseline + kc) / 2.0, y),
-        xytext=(0, -24),
-        textcoords="offset points",
-        ha="center",
-        color="white",
-        fontsize=12,
-        fontweight="bold",
-        bbox=dict(boxstyle="round,pad=0.35", fc=C_UP, ec=C_UP, lw=0),
-    )
+
+    for xpos, value in zip(actual_sizes, baseline):
+        ax.annotate(
+            f"{value:.0f}",
+            (xpos, value),
+            xytext=(0, 10),
+            textcoords="offset points",
+            ha="center",
+            color=C_BASE,
+            fontsize=9,
+            fontweight="bold",
+        )
+    for xpos, value in zip(actual_sizes, kc):
+        ax.annotate(
+            f"{value:.0f}",
+            (xpos, value),
+            xytext=(0, -18),
+            textcoords="offset points",
+            ha="center",
+            color=C_KC,
+            fontsize=9,
+            fontweight="bold",
+        )
+    for xpos, base_val, kc_val in zip(actual_sizes, baseline, kc):
+        uplift = ((kc_val - base_val) / base_val) * 100.0
+        ax.annotate(
+            f"kc +{uplift:.1f}%",
+            (xpos, (base_val + kc_val) / 2.0),
+            xytext=(0, 0),
+            textcoords="offset points",
+            ha="center",
+            va="center",
+            fontsize=9,
+            fontweight="bold",
+            color=C_UP,
+            bbox=dict(boxstyle="round,pad=0.28", fc="white", ec=C_UP, lw=1.2),
+        )
 
     ax.set_title("Stage 4 Strong Scaling FOM on 8 Nodes")
-    ax.set_xlabel("FOM (z/s)")
-    ax.set_yticks([])
-    ax.legend(loc="upper left", frameon=False)
+    ax.set_xlabel("Local problem size s")
+    ax.set_ylabel("FOM (z/s)")
+    ax.set_xticks(actual_sizes, [str(size) for size in actual_sizes])
+    ax.legend(frameon=False, loc="upper left")
 
     fig.tight_layout()
     fig.savefig(out_dir / "stage4_strong_fom.png", bbox_inches="tight")
