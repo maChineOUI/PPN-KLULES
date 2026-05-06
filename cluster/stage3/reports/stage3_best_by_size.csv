@@ -1,0 +1,5 @@
+size,version,best_case,mpi_ranks,omp_threads,elapsed_s,fom,local_host,case_id
+80,baseline,8:12,8,12,2.8,29534.171,node53,baseline_hybrid_np8_t12_s80_i20_20260503_235814
+80,kc,1:96,1,96,6.24,1641.3502,node60,kc_hybrid_np1_t96_s80_i20_20260503_235054
+120,baseline,8:12,8,12,21,13249,node60,baseline_hybrid_np8_t12_s120_i20_20260504_003455
+120,kc,8:12,8,12,15.06,18354.214,node217,kc_hybrid_np8_t12_s120_i20_20260504_003455
