@@ -1,0 +1,67 @@
+--------------------------------------------------------------------------
+WARNING: There was an error initializing an OpenFabrics device.
+
+  Local host:   node143
+  Local device: mlx5_0
+--------------------------------------------------------------------------
+[1778074000.947214] [node143:1891128:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778074001.039169] [node143:1891133:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778074001.047036] [node143:1891121:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778074001.055832] [node143:1891132:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778074001.060285] [node143:1891125:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778074001.060905] [node143:1891131:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778074001.057720] [node150:134091:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778074001.066233] [node143:1891124:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778074001.066861] [node143:1891120:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778074001.059400] [node150:134096:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778074001.059885] [node150:134095:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778074001.060104] [node150:134099:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778074001.061111] [node150:134090:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778074001.061419] [node150:134094:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778074001.073958] [node150:134088:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778074001.083217] [node150:134089:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778074001.379936] [node143:1891128:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778074001.380216] [node143:1891121:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778074001.380316] [node143:1891125:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778074001.380369] [node143:1891124:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778074001.380378] [node143:1891120:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778074001.380408] [node143:1891132:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778074001.380392] [node143:1891133:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778074001.380416] [node143:1891131:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778074001.373581] [node150:134099:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778074001.373656] [node150:134090:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778074001.373634] [node150:134096:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778074001.373603] [node150:134091:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778074001.373557] [node150:134095:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778074001.373689] [node150:134089:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778074001.373661] [node150:134094:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+[1778074001.373627] [node150:134088:0]     ucp_context.c:2137 UCX  WARN  UCP API version is incompatible: required >= 1.17, actual 1.16.0 (loaded from /lib64/libucp.so.0)
+Running problem size 60^3 per domain until completion
+Num processors: 64
+Num threads: 12
+Total number of elements: 13824000 
+
+To run other sizes, use -s <integer>.
+To run a fixed number of iterations, use -i <integer>.
+To run a more or less balanced region set, use -b <integer>.
+To change the relative costs of regions, use -c <integer>.
+To print out progress, use -p
+To write an output file for VisIt, use -v
+See help (-h) for more options
+
+Run completed:
+   Problem size        =  60
+   MPI tasks           =  64
+   Iteration count     =  20
+   Final Origin Energy =  2.242747e+09
+   Testing Plane 0 of Energy Array on rank 0:
+        MaxAbsDiff   = 2.086163e-07
+        TotalAbsDiff = 2.161873e-07
+        MaxRelDiff   = 2.800676e-13
+
+Elapsed time         =       0.81 (s)
+Grind time (us/z/c)  = 0.18712346 (per dom)  (0.80837333 overall)
+FOM                  =  342020.19 (z/s)
+
+[node143.prod.phadcloud.local:1891102] 63 more processes have sent help message help-mpi-btl-openib.txt / error in device init
+[node143.prod.phadcloud.local:1891102] Set MCA parameter "orte_base_help_aggregate" to 0 to see all help / error messages

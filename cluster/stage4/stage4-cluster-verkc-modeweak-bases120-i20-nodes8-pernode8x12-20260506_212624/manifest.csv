@@ -1,0 +1,2 @@
+case_id,version,section,scaling_mode,node_count,ranks_per_node,mpi_ranks,omp_threads,base_size,size,iters,exec_path
+kc_stage4_weak_n8_np64_rpn8_t12_s120_b120_i20_20260506_212624,kc,stage4,weak,8,8,64,12,120,120,20,/phadcloud/home/phadcloud65np17907/build-cluster-kc/lulesh2.0

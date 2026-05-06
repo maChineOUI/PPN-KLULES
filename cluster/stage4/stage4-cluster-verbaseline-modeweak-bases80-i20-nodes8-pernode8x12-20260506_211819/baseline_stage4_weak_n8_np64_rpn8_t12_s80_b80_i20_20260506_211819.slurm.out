@@ -1,0 +1,17 @@
+[stage4] 2026-05-06 21:18:23 batch script start
+[stage4] submit host: node143.prod.phadcloud.local
+[stage4] 2026-05-06 21:18:24 modules loaded
+Currently Loaded Modulefiles:
+ 1) openmpi/4.1.6  
+[stage4] case_label=baseline_stage4_weak_n8_np64_rpn8_t12_s80_b80_i20_20260506_211819
+[stage4] version=baseline section=stage4 scaling=weak
+[stage4] nodes=8 ranks_per_node=8 mpi_ranks=64 omp_threads=12
+[stage4] base_size=80 actual_size=80 iterations=20
+[stage4] exec_path=/phadcloud/home/phadcloud65np17907/build-lulesh-baseline/lulesh2.0
+[stage4] working_dir=/phadcloud/home/phadcloud65np17907
+[stage4] slurm_job_id=649341 nodelist=node[143,150,203-206,212,215]
+[stage4] mpirun command: mpirun -np 64 --map-by ppr:8:node:PE=12 --bind-to core /phadcloud/home/phadcloud65np17907/build-lulesh-baseline/lulesh2.0 -s 80 -i 20
+[stage4] 2026-05-06 21:18:24 launching mpirun
+[stage4] 2026-05-06 21:18:28 mpirun finished with status=PASS
+[baseline_stage4_weak_n8_np64_rpn8_t12_s80_b80_i20_20260506_211819] status=PASS nodes=8 np=64 t=12 s=80 elapsed=2.3 fom=288901.46
+[stage4] 2026-05-06 21:18:28 batch script end
