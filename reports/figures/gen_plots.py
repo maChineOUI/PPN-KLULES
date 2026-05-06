@@ -4,8 +4,9 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import numpy as np
+from pathlib import Path
 
-OUT = "/Users/wei/CHPS/PPN-S2/LULESH-gpu-port/reports/figures"
+OUT = Path(__file__).resolve().parent
 
 # ── Color palette ──────────────────────────────────────────────────────────
 C_BASE = "#E05A2B"   # warm red for baseline
@@ -18,7 +19,7 @@ SIZE_COLORS_B = ["#F4A582", "#D6604D", "#B2182B"]
 SIZE_COLORS_K = ["#92C5DE", "#4393C3", "#1A6FAE"]
 
 plt.rcParams.update({
-    "font.family": ["Arial Unicode MS", "DejaVu Sans"],
+    "font.family": ["DejaVu Sans"],
     "font.size": 11,
     "axes.titlesize": 13,
     "axes.labelsize": 12,
@@ -35,12 +36,12 @@ plt.rcParams.update({
 
 # --- Pure MPI ---
 mpi_data = {
-    "baseline": {20: {1: 838.7,  8: 6356.8},
+    "baseline": {20: {1: 838.7, 8: 6356.8, 27: 22369.5},
                  40: {1: 1809.5, 8: 13878.4, 27: 38255.8},
-                 80: {1: 1894.4, 8: 15380.7, 27: 37833.5}},
-    "kc":       {20: {1: 852.3,  8: 7145.8},
+                 80: {1: 1894.4, 8: 15380.7, 27: 37833.5, 64: 50410.2}},
+    "kc":       {20: {1: 852.3, 8: 7145.8, 27: 27639.7},
                  40: {1: 1986.3, 8: 15889.1, 27: 44817.2},
-                 80: {1: 2096.3, 8: 16894.5, 27: 45228.5}},
+                 80: {1: 2096.3, 8: 16894.5, 27: 45228.5, 64: 60823.9}},
 }
 
 # --- Pure OMP (all thread counts, size=80 and size=40 and size=20) ---
@@ -83,6 +84,17 @@ hybrid_s20 = {
     "kc":       [1680.8, 15513.8, 21979.2, 21746.9, 24733.8, 21631.0, 44444.4],
 }
 
+
+def size_label(sz: int) -> str:
+    return f"s{sz} ({sz}^3 = {sz**3:,} zones)"
+
+
+def staggered_ticklabels(values: list[int]) -> list[str]:
+    labels = []
+    for idx, value in enumerate(values):
+        labels.append(f"{value}" if idx % 2 == 0 else f"\n{value}")
+    return labels
+
 # ═══════════════════════════════════════════════════════════════════════════
 # FIGURE 1 – MPI Strong Scaling (FOM vs np)
 # ═══════════════════════════════════════════════════════════════════════════
@@ -99,7 +111,7 @@ for ax, sz, cb, ck in zip(axes, SIZES, SIZE_COLORS_B, SIZE_COLORS_K):
     np1_b = bdata[1]
     nps_ideal = np.array(nps_all)
     ideal = np1_b * nps_ideal
-    ax.plot(nps_ideal, ideal, "--", color=C_IDEAL, lw=1.5, label="理想线性扩展")
+    ax.plot(nps_ideal, ideal, "--", color=C_IDEAL, lw=1.5, label="Ideal linear scaling")
 
     ax.plot(nps_b, [bdata[n] for n in nps_b], 's-', color=cb,
             lw=2, ms=8, label="baseline")
@@ -115,13 +127,12 @@ for ax, sz, cb, ck in zip(axes, SIZES, SIZE_COLORS_B, SIZE_COLORS_K):
                         textcoords='offset points', fontsize=8,
                         color=ck)
 
-    ax.set_title(f"s{sz}（{sz}³={sz**3:,} 区域）")
-    ax.set_xlabel("MPI 进程数 (np)")
+    ax.set_title(size_label(sz))
+    ax.set_xlabel("MPI ranks (np)")
     ax.set_ylabel("FOM (kzc/s)" if ax == axes[0] else "")
     ax.set_xticks(nps_all)
     ax.legend(loc="upper left", fontsize=9)
 
-fig.suptitle("图1  纯 MPI 强扩展性：FOM vs 进程数", fontsize=14, fontweight='bold', y=1.01)
 plt.tight_layout()
 plt.savefig(f"{OUT}/fig1_mpi_scaling.png", bbox_inches='tight')
 plt.close()
@@ -136,14 +147,14 @@ for ax, sz in zip(axes, [40, 80]):
     bdata = mpi_data["baseline"][sz]
     kdata = mpi_data["kc"][sz]
     nps   = sorted(set(bdata.keys()) | set(kdata.keys()))
-    nps_no1 = [n for n in nps if n > 1]
+    nps_no1 = [n for n in nps if n in {8, 27}]
 
     eff_b = [bdata[n] / bdata[1] / n * 100 for n in nps_no1 if n in bdata]
     eff_k = [kdata[n] / kdata[1] / n * 100 for n in nps_no1 if n in kdata]
     xb = [n for n in nps_no1 if n in bdata]
     xk = [n for n in nps_no1 if n in kdata]
 
-    ax.axhline(100, color=C_IDEAL, ls='--', lw=1.5, label="理想效率 100%")
+    ax.axhline(100, color=C_IDEAL, ls='--', lw=1.5, label="Ideal efficiency 100%")
     ax.bar([x - 1.5 for x in xb], eff_b, width=3, color=C_BASE, alpha=0.85, label="baseline")
     ax.bar([x + 1.5 for x in xk], eff_k, width=3, color=C_KC, alpha=0.85, label="kc")
 
@@ -152,14 +163,13 @@ for ax, sz in zip(axes, [40, 80]):
     for x, e in zip(xk, eff_k):
         ax.text(x + 1.5, e + 0.8, f"{e:.1f}%", ha='center', va='bottom', fontsize=9, color=C_KC)
 
-    ax.set_title(f"s{sz} MPI 扩展效率")
-    ax.set_xlabel("MPI 进程数 (np)")
-    ax.set_ylabel("并行效率 (%)")
+    ax.set_title(f"{size_label(sz)}: MPI parallel efficiency")
+    ax.set_xlabel("MPI ranks (np)")
+    ax.set_ylabel("Parallel efficiency (%)")
     ax.set_xticks(xb)
-    ax.set_ylim(60, 115)
-    ax.legend()
+    ax.set_ylim(0, 115)
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.16), ncol=3, fontsize=9)
 
-fig.suptitle("图2  MPI 并行效率（实际加速比 / 理想加速比 × 100%）", fontsize=14, fontweight='bold', y=1.01)
 plt.tight_layout()
 plt.savefig(f"{OUT}/fig2_mpi_efficiency.png", bbox_inches='tight')
 plt.close()
@@ -168,7 +178,7 @@ print("fig2 done")
 # ═══════════════════════════════════════════════════════════════════════════
 # FIGURE 3 – OMP: FOM vs Thread Count (all 3 sizes, both versions)
 # ═══════════════════════════════════════════════════════════════════════════
-fig, axes = plt.subplots(1, 3, figsize=(17, 5.5), sharey=False)
+fig, axes = plt.subplots(1, 3, figsize=(18.5, 5.8), sharey=False)
 
 for ax, sz, cb, ck in zip(axes, SIZES, SIZE_COLORS_B, SIZE_COLORS_K):
     ts    = omp_threads
@@ -187,15 +197,16 @@ for ax, sz, cb, ck in zip(axes, SIZES, SIZE_COLORS_B, SIZE_COLORS_K):
     ax.text(60.5, ymax * 0.98, "Socket", fontsize=8, color='#8B0055', va='top',
             rotation=90, ha='left')
 
-    ax.set_title(f"s{sz}（{sz}³={sz**3:,} 区域）")
-    ax.set_xlabel("OMP 线程数 (T)")
+    ax.set_title(size_label(sz))
+    ax.set_xlabel("OMP threads (T)")
     ax.set_ylabel("FOM (kzc/s)" if ax == axes[0] else "")
-    ax.set_xticks([1, 8, 15, 30, 31, 60, 61, 64])
-    ax.tick_params(axis='x', rotation=45)
+    ticks = [1, 8, 15, 30, 31, 60, 61, 64]
+    ax.set_xticks(ticks)
+    ax.set_xticklabels(staggered_ticklabels(ticks))
+    ax.tick_params(axis='x', labelsize=9)
     ax.set_ylim(0, ymax)
     ax.legend()
 
-fig.suptitle("图3  纯 OMP：FOM vs 线程数（含 NUMA 边界标注）", fontsize=14, fontweight='bold', y=1.01)
 plt.tight_layout()
 plt.savefig(f"{OUT}/fig3_omp_fom.png", bbox_inches='tight')
 plt.close()
@@ -209,22 +220,24 @@ fig, ax = plt.subplots(figsize=(10, 5.5))
 for sz, ck, mk in zip(SIZES, SIZE_COLORS_K, SIZE_MARKS):
     ratio = [k / b for k, b in zip(omp_data["kc"][sz], omp_data["baseline"][sz])]
     ax.plot(omp_threads, ratio, marker=mk, color=ck, lw=2, ms=6,
-            label=f"s{sz}（{sz}³={sz**3:,} 区域）")
+            label=size_label(sz))
 
-ax.axhline(1.0, color=C_IDEAL, ls='--', lw=1.5, label="baseline 基准（1.0）")
-ax.axvline(30, color='#CC4400', lw=1.2, ls=':', alpha=0.8, label="NUMA 0/1 边界 (t=30)")
-ax.axvline(60, color='#8B0055', lw=1.2, ls=':', alpha=0.8, label="Socket 边界 (t=60)")
+ax.axhline(1.0, color=C_IDEAL, ls='--', lw=1.5, label="Baseline reference (1.0)")
+ax.axvline(30, color='#CC4400', lw=1.2, ls=':', alpha=0.8, label="NUMA 0/1 boundary (t=30)")
+ax.axvline(60, color='#8B0055', lw=1.2, ls=':', alpha=0.8, label="Socket boundary (t=60)")
 
 ax.fill_between(omp_threads,
                 [k / b for k, b in zip(omp_data["kc"][80], omp_data["baseline"][80])],
                 1.0, alpha=0.08, color=C_KC)
 
-ax.set_xlabel("OMP 线程数 (T)")
-ax.set_ylabel("kc / baseline FOM 比值")
-ax.set_title("图4  纯 OMP：kc 相对 baseline 的性能倍数（各问题规模）")
-ax.set_xticks([1, 8, 15, 30, 31, 60, 61, 64])
-ax.tick_params(axis='x', rotation=45)
-ax.legend(loc="upper left")
+ax.set_title("Pure OMP: kc / baseline FOM ratio")
+ax.set_xlabel("OMP threads (T)")
+ax.set_ylabel("kc / baseline FOM ratio")
+ticks = [1, 8, 15, 30, 31, 60, 61, 64]
+ax.set_xticks(ticks)
+ax.set_xticklabels(staggered_ticklabels(ticks))
+ax.tick_params(axis='x', labelsize=9)
+ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.18), ncol=2, fontsize=9)
 ax.set_ylim(bottom=0.9)
 
 plt.tight_layout()
@@ -240,7 +253,7 @@ fig, axes = plt.subplots(1, 2, figsize=(13, 5))
 zoom_t = [24, 28, 29, 30, 31, 32, 36, 40]
 zoom_idx = [omp_threads.index(t) for t in zoom_t]
 
-for ax, sz, title in zip(axes, [40, 80], ["s40（NUMA 边界最显著）", "s80（大问题规模对比）"]):
+for ax, sz, title in zip(axes, [40, 80], ["s40", "s80"]):
     fom_b = [omp_data["baseline"][sz][i] for i in zoom_idx]
     fom_k = [omp_data["kc"][sz][i] for i in zoom_idx]
     cb = SIZE_COLORS_B[SIZES.index(sz)]
@@ -250,7 +263,7 @@ for ax, sz, title in zip(axes, [40, 80], ["s40（NUMA 边界最显著）", "s80�
     ax.plot(zoom_t, fom_k, 'o-', color=ck, lw=2.5, ms=9, label="kc")
 
     # Shade the NUMA crossing
-    ax.axvspan(30, 31, alpha=0.12, color='#CC4400', label="跨 NUMA 区域")
+    ax.axvspan(30, 31, alpha=0.12, color='#CC4400', label="Cross-NUMA region")
     ax.axvline(30, color='#CC4400', lw=2, ls='-', alpha=0.6)
     ax.axvline(31, color='#CC4400', lw=2, ls='--', alpha=0.6)
 
@@ -271,15 +284,14 @@ for ax, sz, title in zip(axes, [40, 80], ["s40（NUMA 边界最显著）", "s80�
                 arrowprops=dict(arrowstyle='->', color=cb, lw=1.5),
                 fontsize=10, color=cb, fontweight='bold')
 
-    ax.set_xlabel("OMP 线程数 (T)")
+    ax.set_title(f"{size_label(sz)}: NUMA boundary zoom")
+    ax.set_xlabel("OMP threads (T)")
     ax.set_ylabel("FOM (kzc/s)")
-    ax.set_title(f"NUMA 边界放大：{title}")
     ax.set_xticks(zoom_t)
     ax.legend()
     ax.text(30.5, ax.get_ylim()[0] if ax.get_ylim()[0] != 0 else min(fom_b)*0.98,
-            "NUMA 0→1", ha='center', fontsize=8.5, color='#CC4400')
+            "NUMA 0->1", ha='center', fontsize=8.5, color='#CC4400')
 
-plt.suptitle("图5  NUMA 0→1 边界放大（t=24–40）", fontsize=14, fontweight='bold', y=1.01)
 plt.tight_layout()
 plt.savefig(f"{OUT}/fig5_numa_boundary_zoom.png", bbox_inches='tight')
 plt.close()
@@ -304,11 +316,11 @@ for ax, (sz, hdata) in zip(axes, [(20, hybrid_s20), (40, hybrid_s40), (80, hybri
         ax.text(xi + w/2, k + ax.get_ylim()[1]*0.01 if ax.get_ylim()[1]!=1.0 else k*1.02,
                 f"×{r:.2f}", ha='center', va='bottom', fontsize=8, color=C_KC, fontweight='bold')
 
-    ax.set_title(f"s{sz}（{sz}³={sz**3:,} 区域）")
+    ax.set_title(size_label(sz))
     ax.set_xticks(x)
-    ax.set_xticklabels([f"{c}\n({t}核)" for c, t in zip(hybrid_configs, hybrid_total_t)],
+    ax.set_xticklabels([f"{c}\n({t} cores)" for c, t in zip(hybrid_configs, hybrid_total_t)],
                        fontsize=8.5)
-    ax.set_xlabel("混合配置 (np×T)")
+    ax.set_xlabel("Hybrid configuration (np x T)")
     ax.set_ylabel("FOM (kzc/s)" if ax == axes[0] else "")
     ax.legend()
 
@@ -321,8 +333,6 @@ for ax, (sz, hdata) in zip(axes, [(20, hybrid_s20), (40, hybrid_s40), (80, hybri
         ax.text(xi + w/2, k + ymax * 0.012,
                 f"×{r:.2f}", ha='center', va='bottom', fontsize=8, color=C_KC, fontweight='bold')
 
-fig.suptitle("图6  混合 MPI+OMP：各配置 FOM 对比（标注 kc/baseline 倍数）",
-             fontsize=14, fontweight='bold', y=1.01)
 plt.tight_layout()
 plt.savefig(f"{OUT}/fig6_hybrid_bar.png", bbox_inches='tight')
 plt.close()
@@ -341,7 +351,7 @@ np8_b   = [15380.7, 15272.4, 34684.3, 38988.7, 50762.3, 53726.0]
 eff_k = [np8_k[i] / np8_k[0] / np8_t[i] * 100 for i in range(len(np8_t))]
 eff_b = [np8_b[i] / np8_b[0] / np8_t[i] * 100 for i in range(len(np8_t))]
 
-ax.axhline(100, color=C_IDEAL, ls='--', lw=1.5, label="理想效率 100%")
+ax.axhline(100, color=C_IDEAL, ls='--', lw=1.5, label="Ideal efficiency 100%")
 ax.plot(np8_t, eff_b, 's-', color=C_BASE, lw=2.5, ms=9, label="baseline np=8")
 ax.plot(np8_t, eff_k, 'o-', color=C_KC,  lw=2.5, ms=9, label="kc np=8")
 
@@ -353,9 +363,9 @@ for t, e in zip(np8_t[1:], eff_k[1:]):
                 textcoords='offset points', ha='center', fontsize=9.5, color=C_KC)
 
 ax.fill_between(np8_t, eff_k, eff_b, alpha=0.10, color=C_KC)
-ax.set_xlabel("每进程 OMP 线程数 T（np=8 固定）")
-ax.set_ylabel("OMP 线程效率（%）")
-ax.set_title("图7  s80 混合模式：OMP 线程效率（以纯 MPI np=8 为基准）")
+ax.set_title("s80: OMP thread efficiency at fixed np=8")
+ax.set_xlabel("OMP threads per rank T (fixed np=8)")
+ax.set_ylabel("OMP thread efficiency (%)")
 ax.set_xticks(np8_t)
 ax.set_ylim(0, 120)
 ax.legend()
@@ -373,8 +383,8 @@ fig, ax = plt.subplots(figsize=(12, 6))
 labels = [
     "MPI\nnp=1", "MPI\nnp=8", "MPI\nnp=27",
     "OMP\nt=1",  "OMP\nt=30", "OMP\nt=64",
-    "混合\n8×4",  "混合\n8×8",  "混合\n8×12",
-    "混合\n1×96", "混合\n27×3",
+    "Hybrid\n8x4",  "Hybrid\n8x8",  "Hybrid\n8x12",
+    "Hybrid\n1x96", "Hybrid\n27x3",
 ]
 fom_b_all = [1894.4, 15380.7, 37833.5,
              1888.0, 1362.9, 1026.2,
@@ -405,15 +415,14 @@ for xi, (b, k) in enumerate(zip(fom_b_all, fom_k_all)):
 # Section dividers
 ax.axvline(2.5, color='#999', lw=1.0, ls='-', alpha=0.5)
 ax.axvline(5.5, color='#999', lw=1.0, ls='-', alpha=0.5)
-ax.text(1,   ymax * 0.92, "纯 MPI", ha='center', fontsize=10, color='#555', style='italic')
-ax.text(4.5, ymax * 0.92, "纯 OMP", ha='center', fontsize=10, color='#555', style='italic')
-ax.text(8.5, ymax * 0.92, "混合 MPI+OMP", ha='center', fontsize=10, color='#555', style='italic')
+ax.text(1,   ymax * 0.92, "Pure MPI", ha='center', fontsize=10, color='#555', style='italic')
+ax.text(4.5, ymax * 0.92, "Pure OMP", ha='center', fontsize=10, color='#555', style='italic')
+ax.text(8.5, ymax * 0.92, "Hybrid MPI+OMP", ha='center', fontsize=10, color='#555', style='italic')
 
 ax.set_xticks(x)
 ax.set_xticklabels(labels, fontsize=9)
 ax.set_ylabel("FOM (kzc/s)")
-ax.set_title("图8  s80 全并行模式性能总览（百分比为 kc 相对 baseline 的提升）",
-             fontsize=13, fontweight='bold')
+ax.set_title("s80: peak FOM across parallel modes")
 ax.legend(loc='upper left')
 plt.tight_layout()
 plt.savefig(f"{OUT}/fig8_summary_all_modes.png", bbox_inches='tight')
@@ -423,7 +432,7 @@ print("fig8 done")
 # ═══════════════════════════════════════════════════════════════════════════
 # FIGURE 9 – OMP Degradation Rate: % loss vs t=1
 # ═══════════════════════════════════════════════════════════════════════════
-fig, axes = plt.subplots(1, 2, figsize=(14, 5.5))
+fig, axes = plt.subplots(1, 2, figsize=(14.5, 5.8))
 
 for ax, sz in zip(axes, [40, 80]):
     cb = SIZE_COLORS_B[SIZES.index(sz)]
@@ -436,7 +445,7 @@ for ax, sz in zip(axes, [40, 80]):
 
     ax.plot(omp_threads, pct_b, 's-', color=cb, lw=2, ms=6, label="baseline")
     ax.plot(omp_threads, pct_k, 'o-', color=ck, lw=2, ms=6, label="kc")
-    ax.axhline(100, color=C_IDEAL, ls='--', lw=1.3, label="t=1 基准")
+    ax.axhline(100, color=C_IDEAL, ls='--', lw=1.3, label="t=1 reference")
     ax.fill_between(omp_threads, pct_k, pct_b, alpha=0.08, color=C_KC)
 
     ax.axvline(30, color='#CC4400', lw=1.2, ls=':', alpha=0.7)
@@ -446,22 +455,22 @@ for ax, sz in zip(axes, [40, 80]):
 
     # Annotate final values
     ax.annotate(f"t=64: {pct_b[-1]:.0f}%", xy=(64, pct_b[-1]),
-                xytext=(-30, -18), textcoords='offset points',
+                xytext=(-48, -22), textcoords='offset points',
                 fontsize=9, color=cb, arrowprops=dict(arrowstyle='->', color=cb))
     ax.annotate(f"t=64: {pct_k[-1]:.0f}%", xy=(64, pct_k[-1]),
-                xytext=(-30, 10), textcoords='offset points',
+                xytext=(-48, 14), textcoords='offset points',
                 fontsize=9, color=ck, arrowprops=dict(arrowstyle='->', color=ck))
 
-    ax.set_xlabel("OMP 线程数 (T)")
-    ax.set_ylabel("相对 t=1 的 FOM 保留率 (%)")
-    ax.set_title(f"s{sz}：OMP 性能保留率")
-    ax.set_xticks([1, 8, 15, 30, 31, 60, 61, 64])
-    ax.tick_params(axis='x', rotation=45)
+    ax.set_title(f"{size_label(sz)}: OMP retention")
+    ax.set_xlabel("OMP threads (T)")
+    ax.set_ylabel("FOM retention vs t=1 (%)")
+    ticks = [1, 8, 15, 30, 31, 60, 61, 64]
+    ax.set_xticks(ticks)
+    ax.set_xticklabels(staggered_ticklabels(ticks))
+    ax.tick_params(axis='x', labelsize=9)
     ax.set_ylim(0, 120)
     ax.legend()
 
-fig.suptitle("图9  OMP 性能保留率（相对单线程 FOM）——baseline 严重退化，kc 高度稳定",
-             fontsize=13, fontweight='bold', y=1.01)
 plt.tight_layout()
 plt.savefig(f"{OUT}/fig9_omp_retention.png", bbox_inches='tight')
 plt.close()
@@ -495,37 +504,36 @@ ideal_line = p_range.astype(float)
 smax_b = 1 / s_b
 smax_k = 1 / s_k
 
-ax.plot(p_range, ideal_line,  '--', color=C_IDEAL, lw=1.5, label="理想线性扩展")
+ax.plot(p_range, ideal_line,  '--', color=C_IDEAL, lw=1.5, label="Ideal linear scaling")
 ax.plot(p_range, amdahl_b, '-', color=C_BASE, lw=2.5,
-        label=f"baseline（串行比例 {s_b*100:.1f}%，上限 {smax_b:.0f}×）")
+        label=f"baseline (serial fraction {s_b*100:.1f}%, limit {smax_b:.0f}x)")
 ax.plot(p_range, amdahl_k, '-', color=C_KC,  lw=2.5,
-        label=f"kc（串行比例 {s_k*100:.1f}%，上限 {smax_k:.0f}×）")
+        label=f"kc (serial fraction {s_k*100:.1f}%, limit {smax_k:.0f}x)")
 
 # Horizontal asymptotes
 ax.axhline(smax_b, color=C_BASE, lw=1.0, ls='--', alpha=0.45)
 ax.axhline(smax_k, color=C_KC,   lw=1.0, ls='--', alpha=0.45)
-ax.text(165, smax_b + 0.3, f"上限 {smax_b:.0f}×", fontsize=8.5, color=C_BASE)
-ax.text(165, smax_k + 0.3, f"上限 {smax_k:.0f}×", fontsize=8.5, color=C_KC)
+ax.text(148, smax_b - 1.0, f"Limit {smax_b:.0f}x", fontsize=8.5, color=C_BASE,
+        bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.7))
+ax.text(148, smax_k + 0.6, f"Limit {smax_k:.0f}x", fontsize=8.5, color=C_KC,
+        bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.7))
 
 # Measured points
 ax.scatter([p], [S_b], color=C_BASE, zorder=5, s=90, marker='D')
 ax.scatter([p], [S_k], color=C_KC,  zorder=5, s=90, marker='D')
-ax.annotate(f"实测 {p} 核\n{S_b:.1f}×", xy=(p, S_b),
-            xytext=(p+6, S_b - 1.5), fontsize=9.5, color=C_BASE,
+ax.annotate(f"Measured {p} cores\n{S_b:.1f}x", xy=(p, S_b),
+            xytext=(p+10, S_b - 3.0), fontsize=9.5, color=C_BASE,
             arrowprops=dict(arrowstyle='->', color=C_BASE, lw=1.2))
-ax.annotate(f"实测 {p} 核\n{S_k:.1f}×", xy=(p, S_k),
-            xytext=(p+6, S_k + 1.0), fontsize=9.5, color=C_KC,
+ax.annotate(f"Measured {p} cores\n{S_k:.1f}x", xy=(p, S_k),
+            xytext=(p+10, S_k + 2.0), fontsize=9.5, color=C_KC,
             arrowprops=dict(arrowstyle='->', color=C_KC, lw=1.2))
 
-ax.set_xlabel("线程/进程数 p")
-ax.set_ylabel("加速比 S(p)")
-ax.set_title(
-    f"图10  Amdahl 定律拟合（1×96 混合，s80）\n"
-    f"baseline 串行瓶颈 {s_b*100:.1f}%，kc 串行瓶颈 {s_k*100:.1f}%"
-)
+ax.set_title("s80 hybrid 1x96: Amdahl fit")
+ax.set_xlabel("Threads / ranks p")
+ax.set_ylabel("Speedup S(p)")
 ax.set_xlim(1, 200)
 ax.set_ylim(0, max(smax_k, S_k) * 1.15)
-ax.legend(loc='upper left')
+ax.legend(loc='lower right', fontsize=9)
 
 plt.tight_layout()
 plt.savefig(f"{OUT}/fig10_amdahl.png", bbox_inches='tight')
