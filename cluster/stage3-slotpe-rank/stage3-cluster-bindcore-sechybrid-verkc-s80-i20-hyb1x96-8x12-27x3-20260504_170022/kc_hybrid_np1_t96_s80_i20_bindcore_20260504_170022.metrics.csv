@@ -1,0 +1,2 @@
+case_id,version,section,mpi_ranks,omp_threads,size,iters,elapsed_s,fom,energy,max_abs_diff,status
+kc_hybrid_np1_t96_s80_i20_bindcore_20260504_170022,kc,hybrid,1,96,80,20,0.19,55014.425,8.306471e+07,2.793968e-09,PASS

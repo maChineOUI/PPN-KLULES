@@ -1,0 +1,53 @@
+CASE_LABEL=kc_hybrid_np8_t12_s80_i20_bindcore_20260504_170022
+SECTION_NAME=hybrid
+MPI_BINDING_MODE=core
+HYBRID_LAYOUT_MODE=slotpe
+OMP_NUM_THREADS=12
+OMP_PLACES=cores
+OMP_PROC_BIND=close
+MPI_CMD=mpirun --map-by slot:PE=12 --bind-to core -np 8 /phadcloud/home/phadcloud65np17907/build-cluster-kc/lulesh2.0 -s 80 -i 20
+Model name:                         INTEL(R) XEON(R) PLATINUM 8581C
+Thread(s) per core:                 1
+Core(s) per socket:                 60
+Socket(s):                          2
+NUMA node(s):                       4
+NUMA node0 CPU(s):                  0-29
+NUMA node1 CPU(s):                  30-59
+NUMA node2 CPU(s):                  60-89
+NUMA node3 CPU(s):                  90-119
+
+--------------------------------------------------------------------------
+WARNING: There was an error initializing an OpenFabrics device.
+
+  Local host:   node60
+  Local device: mlx5_0
+--------------------------------------------------------------------------
+Running problem size 80^3 per domain until completion
+Num processors: 8
+Num threads: 12
+Total number of elements: 4096000
+
+To run other sizes, use -s <integer>.
+To run a fixed number of iterations, use -i <integer>.
+To run a more or less balanced region set, use -b <integer>.
+To change the relative costs of regions, use -c <integer>.
+To print out progress, use -p
+See help (-h) for more options
+
+Run completed:  
+   Problem size        =  80 
+   MPI tasks           =  8 
+   Iteration count     =  20 
+   Final Origin Energy = 6.645177e+08 
+   Testing Plane 0 of Energy Array on rank 0:
+        MaxAbsDiff   = 7.450581e-09
+        TotalAbsDiff = 8.498952e-09
+        MaxRelDiff   = 2.274708e-12
+
+
+Elapsed time         =       0.89 (s)
+Grind time (us/z/c)  = 0.086603223 (per dom)  (0.010825403 overall)
+FOM                  =  92375.315 (z/s)
+
+[node60.prod.phadcloud.local:1779701] 7 more processes have sent help message help-mpi-btl-openib.txt / error in device init
+[node60.prod.phadcloud.local:1779701] Set MCA parameter "orte_base_help_aggregate" to 0 to see all help / error messages

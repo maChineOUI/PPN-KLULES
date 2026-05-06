@@ -67,6 +67,10 @@ def ensure_out_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
 
 
+def resolve_stage3_source(path: Path) -> Path:
+    return path
+
+
 def plot_stage4_weak_fom(stage4_rows: list[dict[str, str]], out_dir: Path) -> None:
     sizes = [80, 120]
     baseline = [
@@ -174,6 +178,9 @@ def plot_stage3_stage4_fom(
         for version in ("baseline", "kc"):
             s3 = pick_unique(
                 stage3_rows,
+                section="hybrid",
+                mpi_ranks=8,
+                omp_threads=12,
                 size=size,
                 version=version,
             )
@@ -219,8 +226,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--stage3",
-        default=str(ROOT / "cluster/stage3/reports/stage3_best_by_size.csv"),
-        help="Path to stage3 summary CSV for the optional comparison plot.",
+        default=str(ROOT / "cluster/stage3-slotpe-rank/stage3_slotpe_rank_results_compact.csv"),
+        help="Path to the stage3 compact CSV used for the comparison plot.",
     )
     parser.add_argument(
         "--out-dir",
@@ -230,7 +237,7 @@ def main() -> int:
     args = parser.parse_args()
 
     stage4_path = Path(args.stage4).resolve()
-    stage3_path = Path(args.stage3).resolve()
+    stage3_path = resolve_stage3_source(Path(args.stage3).resolve())
     out_dir = Path(args.out_dir).resolve()
     ensure_out_dir(out_dir)
 
@@ -243,9 +250,8 @@ def main() -> int:
     print(f"Wrote {out_dir / 'stage4_strong_fom.png'}")
 
     if stage3_path.exists():
-        stage3_rows = [row for row in load_csv(stage3_path) if is_valid(row)]
-        if not stage3_rows:
-            stage3_rows = load_csv(stage3_path)
+        raw_stage3_rows = load_csv(stage3_path)
+        stage3_rows = [row for row in raw_stage3_rows if row.get("status") == "PASS"]
         plot_stage3_stage4_fom(stage3_rows, stage4_rows, out_dir)
         print(f"Wrote {out_dir / 'stage3_vs_stage4_fom.png'}")
     else:
